@@ -11,6 +11,12 @@
         "odReserve": {
             "outFile": "build/ODReserve.wasm",
             "use": ["abort=src/contracts/reserve/index/abort"]
+        },
+        "mockPool": {
+            "entry": "src/contracts/mock/index.ts",
+            "outFile": "build/MockMotoSwapPool.wasm",
+            "sourceMap": false,
+            "optimize": false
         }
     },
     "options": {

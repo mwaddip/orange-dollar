@@ -7,6 +7,7 @@
         "build:od": "asc src/contracts/od/index.ts --target od --measure --uncheckedBehavior never",
         "build:orc": "asc src/contracts/orc/index.ts --target orc --measure --uncheckedBehavior never",
         "build:reserve": "asc src/contracts/reserve/index.ts --target odReserve --measure --uncheckedBehavior never",
+        "build:mock": "asc src/contracts/mock/index.ts --target mockPool --measure --uncheckedBehavior never",
         "build": "npm run build:od && npm run build:orc && npm run build:reserve",
         "test": "tsx tests/index.ts"
     },
