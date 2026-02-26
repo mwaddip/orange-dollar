@@ -7,10 +7,16 @@ import {
     EMPTY_POINTER,
     OP_NET,
     Revert,
+    SafeMath,
     StoredAddress,
     StoredBoolean,
     StoredU256,
 } from '@btc-vision/btc-runtime/runtime';
+import {
+    SEL_TOKEN0,
+    SEL_PRICE0_CUMULATIVE_LAST,
+    SEL_PRICE1_CUMULATIVE_LAST,
+} from '../selectors';
 
 // ─── Phase constants ──────────────────────────────────────────────────────────
 
@@ -210,6 +216,79 @@ export class ODReserve extends OP_NET {
         return response;
     }
 
+    // ── TWAP Oracle ────────────────────────────────────────────────────────
+
+    /**
+     * Sets the MotoSwap WBTC/OD pool address and determines token ordering.
+     *
+     * Owner-only. Calls pool's token0() to determine whether WBTC is token0,
+     * then takes the initial TWAP snapshot.
+     *
+     * @param calldata - poolAddress: Address
+     */
+    @method({ name: 'poolAddress', type: ABIDataTypes.ADDRESS })
+    public initPool(calldata: Calldata): BytesWriter {
+        this._onlyOwner();
+
+        const poolAddress: Address = calldata.readAddress();
+        this._poolAddr.value = poolAddress;
+
+        // Determine token ordering: call token0() on the pool
+        const w = new BytesWriter(4);
+        w.writeSelector(SEL_TOKEN0);
+        const result = Blockchain.call(this._poolAddr.value, w, true);
+        const token0: Address = result.data.readAddress();
+
+        // WBTC is token0 if the pool reports our WBTC address as token0
+        this._wbtcIsToken0.value = token0 == this._wbtcAddr.value;
+
+        // Take the initial snapshot
+        this._takeSnapshot();
+
+        const response = new BytesWriter(1);
+        response.writeBoolean(true);
+        return response;
+    }
+
+    /**
+     * Returns the current TWAP value (WBTC price in OD units, 8-decimal scale).
+     *
+     * If the pool is not set or the snapshot window has not filled, returns zero.
+     */
+    @method()
+    @returns({ name: 'twap', type: ABIDataTypes.UINT256 })
+    public getTwap(_: Calldata): BytesWriter {
+        const twap: u256 = this._computeTwap();
+        const response = new BytesWriter(32);
+        response.writeU256(twap);
+        return response;
+    }
+
+    /**
+     * Returns the TWAP window size in blocks.
+     */
+    @method()
+    @returns({ name: 'blocks', type: ABIDataTypes.UINT256 })
+    public getTwapWindow(_: Calldata): BytesWriter {
+        const response = new BytesWriter(32);
+        response.writeU256(this._twapWindow.value);
+        return response;
+    }
+
+    /**
+     * Manually triggers a TWAP snapshot (for testing).
+     *
+     * Public and unauthenticated — only records current state, no financial impact.
+     */
+    @method()
+    @returns({ name: 'ok', type: ABIDataTypes.BOOL })
+    public updateTwapSnapshot(_: Calldata): BytesWriter {
+        this._takeSnapshot();
+        const response = new BytesWriter(1);
+        response.writeBoolean(true);
+        return response;
+    }
+
     // ── Private helpers ────────────────────────────────────────────────────
 
     /**
@@ -219,5 +298,94 @@ export class ODReserve extends OP_NET {
         if (Blockchain.tx.sender != this._owner.value) {
             throw new Revert('ODReserve: caller is not owner');
         }
+    }
+
+    /**
+     * Records the current cumulative price and block number as a snapshot.
+     */
+    private _takeSnapshot(): void {
+        const cumulative: u256 = this._readPoolCumulative();
+        this._twapSnapshot.value = cumulative;
+        this._twapSnapshotBlock.value = Blockchain.block.numberU256;
+    }
+
+    /**
+     * Makes a cross-contract call to read the appropriate cumulative price from the pool.
+     *
+     * Uses price0CumulativeLast() when WBTC is token0, otherwise price1CumulativeLast().
+     *
+     * @returns The u256 cumulative price value from the pool.
+     */
+    private _readPoolCumulative(): u256 {
+        const poolAddr: Address = this._poolAddr.value;
+        if (poolAddr.isZero()) {
+            throw new Revert('ODReserve: pool address not set');
+        }
+
+        const selector: u32 = this._wbtcIsToken0.value
+            ? SEL_PRICE0_CUMULATIVE_LAST
+            : SEL_PRICE1_CUMULATIVE_LAST;
+
+        const w = new BytesWriter(4);
+        w.writeSelector(selector);
+        const result = Blockchain.call(poolAddr, w, true);
+        return result.data.readU256();
+    }
+
+    /**
+     * Computes the TWAP from the last snapshot to the current block.
+     *
+     * - If pool is not set, returns u256.Zero.
+     * - If snapshot block is zero (no snapshot taken), takes a snapshot and returns zero.
+     * - If current block equals snapshot block, returns the last computed TWAP.
+     * - If deltaBlocks >= twapWindow, refreshes snapshot, updates _currentTwap, and
+     *   auto-transitions from PREMINT to LIVE.
+     *
+     * @returns The computed TWAP value, or zero if insufficient data.
+     */
+    private _computeTwap(): u256 {
+        // If pool address not set, return zero gracefully
+        if (this._poolAddr.value.isZero()) {
+            return u256.Zero;
+        }
+
+        const currentCumulative: u256 = this._readPoolCumulative();
+        const snapshotBlock: u256 = this._twapSnapshotBlock.value;
+
+        // If no snapshot yet, take one and return zero
+        if (u256.eq(snapshotBlock, u256.Zero)) {
+            this._takeSnapshot();
+            return u256.Zero;
+        }
+
+        const currentBlock: u256 = Blockchain.block.numberU256;
+
+        // If same block as snapshot, return last computed TWAP
+        if (u256.eq(currentBlock, snapshotBlock)) {
+            return this._currentTwap.value;
+        }
+
+        // Compute deltas using SafeMath
+        const deltaBlocks: u256 = SafeMath.sub(currentBlock, snapshotBlock);
+        const snapshotCumulative: u256 = this._twapSnapshot.value;
+        const deltaCumulative: u256 = SafeMath.sub(currentCumulative, snapshotCumulative);
+
+        // Compute TWAP = deltaCumulative / deltaBlocks
+        const twap: u256 = SafeMath.div(deltaCumulative, deltaBlocks);
+
+        // If the window has filled, update the stored TWAP and refresh snapshot
+        const twapWindow: u256 = this._twapWindow.value;
+        if (u256.ge(deltaBlocks, twapWindow)) {
+            this._takeSnapshot();
+            this._currentTwap.value = twap;
+
+            // Auto-transition: PREMINT → LIVE when TWAP window fills
+            const currentPhase: u8 = <u8>this._phase.value.toU32();
+            if (currentPhase === PHASE_PREMINT) {
+                this._phase.value = u256.fromU64(<u64>PHASE_LIVE);
+            }
+        }
+
+        return twap;
     }
 }
