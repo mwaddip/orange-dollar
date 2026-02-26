@@ -1,0 +1,38 @@
+{
+    "name": "od",
+    "version": "1.0.0",
+    "description": "Orange Dollar (OD) - OPNet smart contracts",
+    "type": "module",
+    "scripts": {
+        "build:od": "asc src/contracts/od/index.ts --target od --measure --uncheckedBehavior never",
+        "build:orc": "asc src/contracts/orc/index.ts --target orc --measure --uncheckedBehavior never",
+        "build:reserve": "asc src/contracts/reserve/index.ts --target odReserve --measure --uncheckedBehavior never",
+        "build": "npm run build:od && npm run build:orc && npm run build:reserve",
+        "test": "ts-node --esm tests/index.ts"
+    },
+    "keywords": [
+        "bitcoin",
+        "smart",
+        "contract",
+        "opnet",
+        "OP_NET",
+        "stablecoin"
+    ],
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "@assemblyscript/loader": "^0.28.9",
+        "@btc-vision/as-bignum": "^0.1.2",
+        "@btc-vision/assemblyscript": "^0.29.2",
+        "@btc-vision/btc-runtime": "^1.11.0-rc.9",
+        "@btc-vision/opnet-transform": "^1.2.0",
+        "@types/node": "^25.3.1",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.9.3"
+    },
+    "dependencies": {
+        "@btc-vision/bitcoin": "^6.5.6",
+        "@btc-vision/unit-test-framework": "^1.0.0-rc.3",
+        "opnet": "^1.8.1-rc.15"
+    }
+}

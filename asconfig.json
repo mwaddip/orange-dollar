@@ -1,0 +1,37 @@
+{
+    "targets": {
+        "od": {
+            "outFile": "build/OD.wasm",
+            "use": ["abort=src/contracts/od/index/abort"]
+        },
+        "orc": {
+            "outFile": "build/ORC.wasm",
+            "use": ["abort=src/contracts/orc/index/abort"]
+        },
+        "odReserve": {
+            "outFile": "build/ODReserve.wasm",
+            "use": ["abort=src/contracts/reserve/index/abort"]
+        }
+    },
+    "options": {
+        "sourceMap": false,
+        "optimizeLevel": 3,
+        "shrinkLevel": 1,
+        "converge": true,
+        "noAssert": false,
+        "enable": [
+            "sign-extension",
+            "mutable-globals",
+            "nontrapping-f2i",
+            "bulk-memory",
+            "simd",
+            "reference-types",
+            "multi-value"
+        ],
+        "runtime": "stub",
+        "memoryBase": 0,
+        "initialMemory": 1,
+        "exportStart": "start",
+        "transform": "@btc-vision/opnet-transform"
+    }
+}
