@@ -5,3 +5,4 @@ await import('./ODReserve.phase.test.js');
 await import('./ODReserve.twap.test.js');
 await import('./ODReserve.orc.test.js');
 await import('./ODReserve.od.test.js');
+await import('./ODReserve.premint.test.js');

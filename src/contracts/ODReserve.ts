@@ -188,6 +188,45 @@ export class ODReserve extends OP_NET {
         return response;
     }
 
+    /**
+     * Returns the current reserve ratio in 1e8 scale.
+     * If no TWAP is available or no OD supply exists, returns u256.Max.
+     */
+    @method()
+    @returns({ name: 'ratio', type: ABIDataTypes.UINT256 })
+    public getReserveRatio(_: Calldata): BytesWriter {
+        const twap: u256 = this._computeTwap();
+        let ratio: u256;
+        if (u256.eq(twap, u256.Zero)) {
+            ratio = u256.Max;
+        } else {
+            ratio = this._computeReserveRatio(twap, u256.Zero, u256.Zero);
+        }
+        const response = new BytesWriter(32);
+        response.writeU256(ratio);
+        return response;
+    }
+
+    /**
+     * Returns equity in WBTC terms.
+     * equity = reserve_wbtc - od_supply * RATIO_SCALE / twap
+     * If no TWAP is available, returns the full WBTC balance.
+     */
+    @method()
+    @returns({ name: 'equity', type: ABIDataTypes.UINT256 })
+    public getEquity(_: Calldata): BytesWriter {
+        const twap: u256 = this._computeTwap();
+        let equity: u256;
+        if (u256.eq(twap, u256.Zero)) {
+            equity = this._wbtcBalance();
+        } else {
+            equity = this._computeEquityInWbtc(twap);
+        }
+        const response = new BytesWriter(32);
+        response.writeU256(equity);
+        return response;
+    }
+
     // ── Phase advancement ──────────────────────────────────────────────────
 
     /**
@@ -216,6 +255,58 @@ export class ODReserve extends OP_NET {
 
         this._seedPrice.value = seedPrice;
         this._phase.value = u256.fromU64(<u64>PHASE_PREMINT);
+
+        const response = new BytesWriter(1);
+        response.writeBoolean(true);
+        return response;
+    }
+
+    // ── OD premint ─────────────────────────────────────────────────────────
+
+    /**
+     * premintOD — Owner premints OD tokens during the PREMINT phase.
+     *
+     * Used once during bootstrap to seed the MotoSwap liquidity pool.
+     * Can only be called once, only in PREMINT phase, only by owner.
+     *
+     * Validates that the reserve ratio (computed with seedPrice since TWAP
+     * is not yet available) stays above MIN_RATIO (400%).
+     *
+     * @param calldata - odAmount: u256 (amount of OD to premint)
+     */
+    @method({ name: 'odAmount', type: ABIDataTypes.UINT256 })
+    public premintOD(calldata: Calldata): BytesWriter {
+        this._onlyOwner();
+
+        const currentPhase: u8 = <u8>this._phase.value.toU32();
+        if (currentPhase !== PHASE_PREMINT) {
+            throw new Revert('ODReserve: premintOD only allowed in PREMINT phase');
+        }
+
+        if (this._premintDone.value) {
+            throw new Revert('ODReserve: premintOD already called');
+        }
+
+        const odAmount: u256 = calldata.readU256();
+        if (u256.eq(odAmount, u256.Zero)) {
+            throw new Revert('ODReserve: odAmount must be non-zero');
+        }
+
+        // Validate ratio using seedPrice (TWAP not available yet)
+        // Same pattern as _computeReserveRatio but with seedPrice instead of twap:
+        // ratio = wbtcBalance * seedPrice / odAmount
+        const seedPrice: u256 = this._seedPrice.value;
+        const wbtcBal: u256 = this._wbtcBalance();
+        const numerator: u256 = SafeMath.mul(wbtcBal, seedPrice);
+        const ratio: u256 = SafeMath.div(numerator, odAmount);
+        if (u256.lt(ratio, MIN_RATIO)) {
+            throw new Revert('ODReserve: would breach minimum reserve ratio');
+        }
+
+        this._premintDone.value = true;
+
+        // Mint OD to the owner
+        this._odMint(this._owner.value, odAmount);
 
         const response = new BytesWriter(1);
         response.writeBoolean(true);
