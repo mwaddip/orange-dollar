@@ -8,7 +8,7 @@
         "build:orc": "asc src/contracts/orc/index.ts --target orc --measure --uncheckedBehavior never",
         "build:reserve": "asc src/contracts/reserve/index.ts --target odReserve --measure --uncheckedBehavior never",
         "build": "npm run build:od && npm run build:orc && npm run build:reserve",
-        "test": "ts-node --esm tests/index.ts"
+        "test": "tsx tests/index.ts"
     },
     "keywords": [
         "bitcoin",
@@ -28,6 +28,7 @@
         "@btc-vision/opnet-transform": "^1.2.0",
         "@types/node": "^25.3.1",
         "ts-node": "^10.9.2",
+        "tsx": "^4.21.0",
         "typescript": "^5.9.3"
     },
     "dependencies": {
