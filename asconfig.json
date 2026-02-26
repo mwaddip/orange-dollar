@@ -17,6 +17,12 @@
             "outFile": "build/MockMotoSwapPool.wasm",
             "sourceMap": false,
             "optimize": false
+        },
+        "mockWbtc": {
+            "entry": "src/contracts/mockWbtc/index.ts",
+            "outFile": "build/MockWBTC.wasm",
+            "sourceMap": false,
+            "optimize": false
         }
     },
     "options": {

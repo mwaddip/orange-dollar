@@ -16,6 +16,12 @@ import {
     SEL_TOKEN0,
     SEL_PRICE0_CUMULATIVE_LAST,
     SEL_PRICE1_CUMULATIVE_LAST,
+    SEL_MINT,
+    SEL_BURN,
+    SEL_TRANSFER,
+    SEL_TRANSFER_FROM,
+    SEL_BALANCE_OF,
+    SEL_TOTAL_SUPPLY,
 } from '../selectors';
 
 // ─── Phase constants ──────────────────────────────────────────────────────────
@@ -289,6 +295,134 @@ export class ODReserve extends OP_NET {
         return response;
     }
 
+    // ── ORC minting / burning ────────────────────────────────────────────
+
+    /**
+     * mintORC — Deposit WBTC, receive ORC reserve-coin tokens.
+     *
+     * Allowed in SEEDING and LIVE phases.
+     * In LIVE phase: blocked when reserve ratio is already above MAX_RATIO (800%).
+     * In SEEDING phase: no ratio check (OD supply is 0, ratio undefined).
+     *
+     * ORC pricing:
+     *   equity_in_wbtc = reserve_wbtc - od_supply / twap
+     *   orc_out = wbtcIn * orc_supply / equity_in_wbtc
+     *   If orc_supply == 0 (first mint): orc_out = wbtcIn * seedPrice / RATIO_SCALE
+     *   Fee is deducted from ORC output.
+     *
+     * @param calldata - wbtcAmount: u256 (amount of WBTC to deposit)
+     */
+    @method({ name: 'wbtcAmount', type: ABIDataTypes.UINT256 })
+    public mintORC(calldata: Calldata): BytesWriter {
+        const wbtcAmount: u256 = calldata.readU256();
+        if (u256.eq(wbtcAmount, u256.Zero)) {
+            throw new Revert('ODReserve: wbtcAmount must be non-zero');
+        }
+
+        const currentPhase: u8 = <u8>this._phase.value.toU32();
+        if (currentPhase !== PHASE_SEEDING && currentPhase !== PHASE_LIVE) {
+            throw new Revert('ODReserve: mintORC not allowed in current phase');
+        }
+
+        // In LIVE phase, block if ratio is already above MAX_RATIO
+        if (currentPhase === PHASE_LIVE) {
+            const twap: u256 = this._computeTwap();
+            if (u256.eq(twap, u256.Zero)) {
+                throw new Revert('ODReserve: TWAP is zero');
+            }
+            this._requireRatioBelow(MAX_RATIO, wbtcAmount, u256.Zero, twap);
+        }
+
+        // Pull WBTC from sender to this contract
+        this._wbtcTransferFrom(Blockchain.tx.sender, this.address, wbtcAmount);
+
+        // Compute ORC output
+        const orcOut: u256 = this._computeOrcOut(wbtcAmount);
+        if (u256.eq(orcOut, u256.Zero)) {
+            throw new Revert('ODReserve: orcOut is zero');
+        }
+
+        // Deduct fee from ORC output
+        const feeRate: u256 = this._fee.value;
+        const feeAmount: u256 = SafeMath.div(SafeMath.mul(orcOut, feeRate), FEE_SCALE);
+        const orcNet: u256 = SafeMath.sub(orcOut, feeAmount);
+        if (u256.eq(orcNet, u256.Zero)) {
+            throw new Revert('ODReserve: orcNet is zero after fee');
+        }
+
+        // Mint ORC to sender
+        this._orcMint(Blockchain.tx.sender, orcNet);
+
+        const response = new BytesWriter(32);
+        response.writeU256(orcNet);
+        return response;
+    }
+
+    /**
+     * burnORC — Return ORC, receive WBTC from the reserve.
+     *
+     * Only allowed in LIVE phase.
+     * Blocked when burning would drop the reserve ratio below MIN_RATIO (400%).
+     *
+     * WBTC pricing:
+     *   equity_in_wbtc = reserve_wbtc - od_supply / twap
+     *   wbtc_out = orcIn * equity_in_wbtc / orc_supply
+     *   Fee is deducted from WBTC output.
+     *
+     * @param calldata - orcAmount: u256 (amount of ORC to burn)
+     */
+    @method({ name: 'orcAmount', type: ABIDataTypes.UINT256 })
+    public burnORC(calldata: Calldata): BytesWriter {
+        const orcAmount: u256 = calldata.readU256();
+        if (u256.eq(orcAmount, u256.Zero)) {
+            throw new Revert('ODReserve: orcAmount must be non-zero');
+        }
+
+        const currentPhase: u8 = <u8>this._phase.value.toU32();
+        if (currentPhase !== PHASE_LIVE) {
+            throw new Revert('ODReserve: burnORC only allowed in LIVE phase');
+        }
+
+        const twap: u256 = this._computeTwap();
+        if (u256.eq(twap, u256.Zero)) {
+            throw new Revert('ODReserve: TWAP is zero');
+        }
+
+        // Compute WBTC output before burning ORC
+        const equityInWbtc: u256 = this._computeEquityInWbtc(twap);
+        const orcSupply: u256 = this._readOrcSupply();
+        if (u256.eq(orcSupply, u256.Zero)) {
+            throw new Revert('ODReserve: ORC supply is zero');
+        }
+
+        // wbtcOut = orcAmount * equityInWbtc / orcSupply
+        const wbtcOutRaw: u256 = SafeMath.div(SafeMath.mul(orcAmount, equityInWbtc), orcSupply);
+        if (u256.eq(wbtcOutRaw, u256.Zero)) {
+            throw new Revert('ODReserve: wbtcOut is zero');
+        }
+
+        // Deduct fee from WBTC output
+        const feeRate: u256 = this._fee.value;
+        const feeAmount: u256 = SafeMath.div(SafeMath.mul(wbtcOutRaw, feeRate), FEE_SCALE);
+        const wbtcNet: u256 = SafeMath.sub(wbtcOutRaw, feeAmount);
+        if (u256.eq(wbtcNet, u256.Zero)) {
+            throw new Revert('ODReserve: wbtcNet is zero after fee');
+        }
+
+        // Check that ratio stays above MIN_RATIO after the WBTC leaves
+        this._requireRatioAbove(MIN_RATIO, u256.Zero, wbtcNet, twap);
+
+        // Burn ORC from sender
+        this._orcBurn(Blockchain.tx.sender, orcAmount);
+
+        // Transfer WBTC to sender
+        this._wbtcTransfer(Blockchain.tx.sender, wbtcNet);
+
+        const response = new BytesWriter(32);
+        response.writeU256(wbtcNet);
+        return response;
+    }
+
     // ── Private helpers ────────────────────────────────────────────────────
 
     /**
@@ -387,5 +521,229 @@ export class ODReserve extends OP_NET {
         }
 
         return twap;
+    }
+
+    // ── Cross-contract call helpers ─────────────────────────────────────
+
+    /**
+     * Calls WBTC.transferFrom(from, to, amount) to pull WBTC into the reserve.
+     * Reverts on failure.
+     */
+    private _wbtcTransferFrom(from: Address, to: Address, amount: u256): void {
+        const w = new BytesWriter(100);
+        w.writeSelector(SEL_TRANSFER_FROM);
+        w.writeAddress(from);
+        w.writeAddress(to);
+        w.writeU256(amount);
+        const result = Blockchain.call(this._wbtcAddr.value, w, true);
+        if (!result.success) {
+            throw new Revert('ODReserve: WBTC transferFrom failed');
+        }
+    }
+
+    /**
+     * Calls WBTC.transfer(to, amount) to send WBTC from the reserve.
+     * Reverts on failure.
+     */
+    private _wbtcTransfer(to: Address, amount: u256): void {
+        const w = new BytesWriter(68);
+        w.writeSelector(SEL_TRANSFER);
+        w.writeAddress(to);
+        w.writeU256(amount);
+        const result = Blockchain.call(this._wbtcAddr.value, w, true);
+        if (!result.success) {
+            throw new Revert('ODReserve: WBTC transfer failed');
+        }
+    }
+
+    /**
+     * Calls ORC.mint(to, amount) to mint ORC tokens.
+     * Reverts on failure.
+     */
+    private _orcMint(to: Address, amount: u256): void {
+        const w = new BytesWriter(68);
+        w.writeSelector(SEL_MINT);
+        w.writeAddress(to);
+        w.writeU256(amount);
+        const result = Blockchain.call(this._orcAddr.value, w, true);
+        if (!result.success) {
+            throw new Revert('ODReserve: ORC mint failed');
+        }
+    }
+
+    /**
+     * Calls ORC.burn(from, amount) to burn ORC tokens.
+     * Reverts on failure.
+     */
+    private _orcBurn(from: Address, amount: u256): void {
+        const w = new BytesWriter(68);
+        w.writeSelector(SEL_BURN);
+        w.writeAddress(from);
+        w.writeU256(amount);
+        const result = Blockchain.call(this._orcAddr.value, w, true);
+        if (!result.success) {
+            throw new Revert('ODReserve: ORC burn failed');
+        }
+    }
+
+    /**
+     * Reads WBTC.balanceOf(this contract) to get the reserve's WBTC balance.
+     */
+    private _wbtcBalance(): u256 {
+        const w = new BytesWriter(36);
+        w.writeSelector(SEL_BALANCE_OF);
+        w.writeAddress(this.address);
+        const result = Blockchain.call(this._wbtcAddr.value, w, true);
+        if (!result.success) {
+            throw new Revert('ODReserve: WBTC balanceOf failed');
+        }
+        return result.data.readU256();
+    }
+
+    /**
+     * Reads OD.totalSupply() to get the current OD supply.
+     */
+    private _readOdSupply(): u256 {
+        const w = new BytesWriter(4);
+        w.writeSelector(SEL_TOTAL_SUPPLY);
+        const result = Blockchain.call(this._odAddr.value, w, true);
+        if (!result.success) {
+            throw new Revert('ODReserve: OD totalSupply failed');
+        }
+        return result.data.readU256();
+    }
+
+    /**
+     * Reads ORC.totalSupply() to get the current ORC supply.
+     */
+    private _readOrcSupply(): u256 {
+        const w = new BytesWriter(4);
+        w.writeSelector(SEL_TOTAL_SUPPLY);
+        const result = Blockchain.call(this._orcAddr.value, w, true);
+        if (!result.success) {
+            throw new Revert('ODReserve: ORC totalSupply failed');
+        }
+        return result.data.readU256();
+    }
+
+    /**
+     * Computes equity in WBTC terms:
+     *   equity_in_wbtc = reserve_wbtc - od_supply / twap
+     *
+     * If od_supply / twap > reserve_wbtc, equity is zero (capped at zero).
+     *
+     * @param twap - Current TWAP value (WBTC price in OD, 8-decimal scale)
+     * @returns equity in WBTC units
+     */
+    private _computeEquityInWbtc(twap: u256): u256 {
+        const reserveWbtc: u256 = this._wbtcBalance();
+        const odSupply: u256 = this._readOdSupply();
+
+        // liability_in_wbtc = od_supply / twap
+        if (u256.eq(twap, u256.Zero)) {
+            return reserveWbtc;
+        }
+        const liabilityInWbtc: u256 = SafeMath.div(odSupply, twap);
+
+        if (u256.gt(liabilityInWbtc, reserveWbtc)) {
+            return u256.Zero;
+        }
+        return SafeMath.sub(reserveWbtc, liabilityInWbtc);
+    }
+
+    /**
+     * Computes the ORC amount for a given WBTC deposit.
+     *
+     * If ORC supply is zero (first mint): orc_out = wbtcIn * seedPrice / RATIO_SCALE
+     * Otherwise: orc_out = wbtcIn * orc_supply / equity_in_wbtc
+     *
+     * @param wbtcIn - Amount of WBTC being deposited
+     * @returns Amount of ORC to mint (before fee deduction)
+     */
+    private _computeOrcOut(wbtcIn: u256): u256 {
+        const orcSupply: u256 = this._readOrcSupply();
+
+        // First mint: use seed price
+        if (u256.eq(orcSupply, u256.Zero)) {
+            const seedPrice: u256 = this._seedPrice.value;
+            if (u256.eq(seedPrice, u256.Zero)) {
+                // In SEEDING phase, seedPrice is not yet set.
+                // Use a 1:1 ratio: 1 WBTC = 1 ORC
+                return wbtcIn;
+            }
+            // orc_out = wbtcIn * seedPrice / RATIO_SCALE
+            return SafeMath.div(SafeMath.mul(wbtcIn, seedPrice), RATIO_SCALE);
+        }
+
+        // Normal case: orc_out = wbtcIn * orcSupply / equityInWbtc
+        const currentPhase: u8 = <u8>this._phase.value.toU32();
+        let equityInWbtc: u256;
+
+        if (currentPhase === PHASE_SEEDING) {
+            // In SEEDING phase, there is no TWAP and no OD supply,
+            // so equity = reserve_wbtc
+            equityInWbtc = this._wbtcBalance();
+        } else {
+            const twap: u256 = this._computeTwap();
+            equityInWbtc = this._computeEquityInWbtc(twap);
+        }
+
+        if (u256.eq(equityInWbtc, u256.Zero)) {
+            throw new Revert('ODReserve: equity in WBTC is zero');
+        }
+
+        return SafeMath.div(SafeMath.mul(wbtcIn, orcSupply), equityInWbtc);
+    }
+
+    /**
+     * Computes the reserve ratio: reserve_wbtc * twap / od_supply.
+     * Scaled to 1e8 (e.g. 400% = 400_000_000).
+     *
+     * @param twap - Current TWAP value
+     * @param extraWbtcIn - Additional WBTC being added (for post-action ratio)
+     * @param extraWbtcOut - WBTC being removed (for post-action ratio)
+     * @returns Reserve ratio in 1e8 scale
+     */
+    private _computeReserveRatio(twap: u256, extraWbtcIn: u256, extraWbtcOut: u256): u256 {
+        const odSupply: u256 = this._readOdSupply();
+        if (u256.eq(odSupply, u256.Zero)) {
+            // No OD minted: ratio is effectively infinite
+            return u256.Max;
+        }
+
+        let reserveWbtc: u256 = this._wbtcBalance();
+        // Adjust for pending in/out
+        reserveWbtc = SafeMath.add(reserveWbtc, extraWbtcIn);
+        if (u256.gt(extraWbtcOut, reserveWbtc)) {
+            return u256.Zero;
+        }
+        reserveWbtc = SafeMath.sub(reserveWbtc, extraWbtcOut);
+
+        // ratio = reserveWbtc * twap * RATIO_SCALE / odSupply
+        // (multiply by RATIO_SCALE to express as a percentage in 1e8)
+        const numerator: u256 = SafeMath.mul(SafeMath.mul(reserveWbtc, twap), RATIO_SCALE);
+        return SafeMath.div(numerator, odSupply);
+    }
+
+    /**
+     * Reverts if the (post-action) reserve ratio is above maxRatio.
+     * Used by mintORC to block when reserve is already over-collateralised.
+     */
+    private _requireRatioBelow(maxRatio: u256, extraWbtcIn: u256, extraWbtcOut: u256, twap: u256): void {
+        const ratio: u256 = this._computeReserveRatio(twap, extraWbtcIn, extraWbtcOut);
+        if (u256.gt(ratio, maxRatio)) {
+            throw new Revert('ODReserve: reserve ratio above maximum');
+        }
+    }
+
+    /**
+     * Reverts if the (post-action) reserve ratio is below minRatio.
+     * Used by burnORC to block when burning would under-collateralise the reserve.
+     */
+    private _requireRatioAbove(minRatio: u256, extraWbtcIn: u256, extraWbtcOut: u256, twap: u256): void {
+        const ratio: u256 = this._computeReserveRatio(twap, extraWbtcIn, extraWbtcOut);
+        if (u256.lt(ratio, minRatio)) {
+            throw new Revert('ODReserve: reserve ratio below minimum');
+        }
     }
 }

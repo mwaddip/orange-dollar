@@ -105,13 +105,27 @@ export const SEL_GET_PHASE: u32 = 0x8605fcee;
  */
 export const SEL_ADVANCE_PHASE: u32 = 0xd1ee3cb1;
 
+// ─── OP-20 standard view methods ──────────────────────────────────────────────
+
+/**
+ * balanceOf(address)
+ * Returns the balance of the given address.
+ * SHA256("balanceOf(address)")[0..3] = 0x5b46f8f6
+ */
+export const SEL_BALANCE_OF: u32 = 0x5b46f8f6;
+
+/**
+ * totalSupply()
+ * Returns the total supply of the token.
+ * SHA256("totalSupply()")[0..3] = 0xa368022e
+ */
+export const SEL_TOTAL_SUPPLY: u32 = 0xa368022e;
+
 // ─── TODO markers ─────────────────────────────────────────────────────────────
 //
 // The following selectors are stubs that will be filled in as later tasks add
 // the corresponding methods to ODReserve:
 //
-//   mintORC(uint256)           -- Task 7
-//   burnORC(uint256)           -- Task 7
 //   mintOD(uint256)            -- Task 8
 //   burnOD(uint256)            -- Task 8
 //   premintOD(address,uint256) -- Task 9
