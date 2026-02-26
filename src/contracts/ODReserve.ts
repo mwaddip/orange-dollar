@@ -423,6 +423,122 @@ export class ODReserve extends OP_NET {
         return response;
     }
 
+    // ── OD minting / burning ─────────────────────────────────────────────
+
+    /**
+     * mintOD — Deposit WBTC, receive OD stablecoin tokens.
+     *
+     * Only allowed in LIVE phase.
+     * TWAP must be non-zero.
+     * Blocked when minting would drop the reserve ratio below MIN_RATIO (400%).
+     *
+     * OD pricing (at TWAP rate):
+     *   od_gross = wbtcIn * twap / RATIO_SCALE
+     *   fee      = od_gross * fee_rate / FEE_SCALE
+     *   od_out   = od_gross - fee
+     *
+     * @param calldata - wbtcAmount: u256 (amount of WBTC to deposit)
+     */
+    @method({ name: 'wbtcAmount', type: ABIDataTypes.UINT256 })
+    public mintOD(calldata: Calldata): BytesWriter {
+        const wbtcAmount: u256 = calldata.readU256();
+        if (u256.eq(wbtcAmount, u256.Zero)) {
+            throw new Revert('ODReserve: wbtcAmount must be non-zero');
+        }
+
+        const currentPhase: u8 = <u8>this._phase.value.toU32();
+        if (currentPhase !== PHASE_LIVE) {
+            throw new Revert('ODReserve: mintOD only allowed in LIVE phase');
+        }
+
+        const twap: u256 = this._computeTwap();
+        this._requireTwap(twap);
+
+        // Compute OD output: od_gross = wbtcIn * twap / RATIO_SCALE
+        const odGross: u256 = SafeMath.div(SafeMath.mul(wbtcAmount, twap), RATIO_SCALE);
+        if (u256.eq(odGross, u256.Zero)) {
+            throw new Revert('ODReserve: odGross is zero');
+        }
+
+        // Deduct fee from OD output
+        const feeRate: u256 = this._fee.value;
+        const feeAmount: u256 = SafeMath.div(SafeMath.mul(odGross, feeRate), FEE_SCALE);
+        const odOut: u256 = SafeMath.sub(odGross, feeAmount);
+        if (u256.eq(odOut, u256.Zero)) {
+            throw new Revert('ODReserve: odOut is zero after fee');
+        }
+
+        // Check that ratio stays above MIN_RATIO after the mint
+        this._requireRatioAboveAfterMintOD(wbtcAmount, odOut, twap);
+
+        // Pull WBTC from sender to this contract
+        this._wbtcTransferFrom(Blockchain.tx.sender, this.address, wbtcAmount);
+
+        // Mint OD to sender
+        this._odMint(Blockchain.tx.sender, odOut);
+
+        const response = new BytesWriter(32);
+        response.writeU256(odOut);
+        return response;
+    }
+
+    /**
+     * burnOD — Return OD stablecoin, receive WBTC from the reserve.
+     *
+     * Only allowed in LIVE phase.
+     * TWAP must be non-zero.
+     * NEVER blocked by reserve ratio — this is the Djed invariant:
+     * users can always redeem their OD for WBTC.
+     *
+     * WBTC pricing (at TWAP rate):
+     *   wbtc_gross = odIn * RATIO_SCALE / twap
+     *   fee        = wbtc_gross * fee_rate / FEE_SCALE
+     *   wbtc_out   = wbtc_gross - fee
+     *
+     * @param calldata - odAmount: u256 (amount of OD to burn)
+     */
+    @method({ name: 'odAmount', type: ABIDataTypes.UINT256 })
+    public burnOD(calldata: Calldata): BytesWriter {
+        const odAmount: u256 = calldata.readU256();
+        if (u256.eq(odAmount, u256.Zero)) {
+            throw new Revert('ODReserve: odAmount must be non-zero');
+        }
+
+        const currentPhase: u8 = <u8>this._phase.value.toU32();
+        if (currentPhase !== PHASE_LIVE) {
+            throw new Revert('ODReserve: burnOD only allowed in LIVE phase');
+        }
+
+        const twap: u256 = this._computeTwap();
+        this._requireTwap(twap);
+
+        // Compute WBTC output: wbtc_gross = odIn * RATIO_SCALE / twap
+        const wbtcGross: u256 = SafeMath.div(SafeMath.mul(odAmount, RATIO_SCALE), twap);
+        if (u256.eq(wbtcGross, u256.Zero)) {
+            throw new Revert('ODReserve: wbtcGross is zero');
+        }
+
+        // Deduct fee from WBTC output
+        const feeRate: u256 = this._fee.value;
+        const feeAmount: u256 = SafeMath.div(SafeMath.mul(wbtcGross, feeRate), FEE_SCALE);
+        const wbtcOut: u256 = SafeMath.sub(wbtcGross, feeAmount);
+        if (u256.eq(wbtcOut, u256.Zero)) {
+            throw new Revert('ODReserve: wbtcOut is zero after fee');
+        }
+
+        // NO ratio check — Djed invariant: burnOD is never blocked
+
+        // Burn OD from sender
+        this._odBurn(Blockchain.tx.sender, odAmount);
+
+        // Transfer WBTC to sender
+        this._wbtcTransfer(Blockchain.tx.sender, wbtcOut);
+
+        const response = new BytesWriter(32);
+        response.writeU256(wbtcOut);
+        return response;
+    }
+
     // ── Private helpers ────────────────────────────────────────────────────
 
     /**
@@ -587,6 +703,66 @@ export class ODReserve extends OP_NET {
     }
 
     /**
+     * Calls OD.mint(to, amount) to mint OD tokens.
+     * Reverts on failure.
+     */
+    private _odMint(to: Address, amount: u256): void {
+        const w = new BytesWriter(68);
+        w.writeSelector(SEL_MINT);
+        w.writeAddress(to);
+        w.writeU256(amount);
+        const result = Blockchain.call(this._odAddr.value, w, true);
+        if (!result.success) {
+            throw new Revert('ODReserve: OD mint failed');
+        }
+    }
+
+    /**
+     * Calls OD.burn(from, amount) to burn OD tokens.
+     * Reverts on failure.
+     */
+    private _odBurn(from: Address, amount: u256): void {
+        const w = new BytesWriter(68);
+        w.writeSelector(SEL_BURN);
+        w.writeAddress(from);
+        w.writeU256(amount);
+        const result = Blockchain.call(this._odAddr.value, w, true);
+        if (!result.success) {
+            throw new Revert('ODReserve: OD burn failed');
+        }
+    }
+
+    /**
+     * Reverts if the TWAP is zero (oracle not ready).
+     */
+    private _requireTwap(twap: u256): void {
+        if (u256.eq(twap, u256.Zero)) {
+            throw new Revert('ODReserve: TWAP not ready');
+        }
+    }
+
+    /**
+     * Checks that the reserve ratio stays above MIN_RATIO after minting OD.
+     *
+     * Both reserve WBTC and OD supply change when minting OD:
+     *   new_reserve   = current_wbtc_balance + wbtcIn
+     *   new_od_supply = current_od_supply + odOut
+     *   ratio         = new_reserve * twap / new_od_supply
+     *
+     * Reverts if the post-mint ratio would be below MIN_RATIO.
+     */
+    private _requireRatioAboveAfterMintOD(wbtcIn: u256, odOut: u256, twap: u256): void {
+        const newReserve: u256 = SafeMath.add(this._wbtcBalance(), wbtcIn);
+        const newOdSupply: u256 = SafeMath.add(this._readOdSupply(), odOut);
+        if (u256.eq(newOdSupply, u256.Zero)) return; // No liability = infinite ratio
+        const numerator: u256 = SafeMath.mul(newReserve, twap);
+        const ratio: u256 = SafeMath.div(numerator, newOdSupply);
+        if (u256.lt(ratio, MIN_RATIO)) {
+            throw new Revert('ODReserve: would breach minimum reserve ratio');
+        }
+    }
+
+    /**
      * Reads WBTC.balanceOf(this contract) to get the reserve's WBTC balance.
      */
     private _wbtcBalance(): u256 {
@@ -628,22 +804,25 @@ export class ODReserve extends OP_NET {
 
     /**
      * Computes equity in WBTC terms:
-     *   equity_in_wbtc = reserve_wbtc - od_supply / twap
+     *   equity_in_wbtc = reserve_wbtc - od_supply * RATIO_SCALE / twap
      *
-     * If od_supply / twap > reserve_wbtc, equity is zero (capped at zero).
+     * The TWAP is encoded as OD-per-WBTC scaled by 1e8 (RATIO_SCALE), so
+     * converting OD back to WBTC requires: wbtc = od * RATIO_SCALE / twap.
      *
-     * @param twap - Current TWAP value (WBTC price in OD, 8-decimal scale)
+     * If liability > reserve, equity is zero (capped at zero).
+     *
+     * @param twap - Current TWAP value (WBTC price in OD, scaled by 1e8)
      * @returns equity in WBTC units
      */
     private _computeEquityInWbtc(twap: u256): u256 {
         const reserveWbtc: u256 = this._wbtcBalance();
         const odSupply: u256 = this._readOdSupply();
 
-        // liability_in_wbtc = od_supply / twap
         if (u256.eq(twap, u256.Zero)) {
             return reserveWbtc;
         }
-        const liabilityInWbtc: u256 = SafeMath.div(odSupply, twap);
+        // liability_in_wbtc = od_supply * RATIO_SCALE / twap
+        const liabilityInWbtc: u256 = SafeMath.div(SafeMath.mul(odSupply, RATIO_SCALE), twap);
 
         if (u256.gt(liabilityInWbtc, reserveWbtc)) {
             return u256.Zero;
@@ -699,6 +878,10 @@ export class ODReserve extends OP_NET {
      * Computes the reserve ratio: reserve_wbtc * twap / od_supply.
      * Scaled to 1e8 (e.g. 400% = 400_000_000).
      *
+     * The TWAP is encoded as "OD-per-WBTC in 8-decimal scale", i.e. TWAP = price * 1e8.
+     * Converting WBTC to OD: od_value = wbtc_sats * TWAP / RATIO_SCALE.
+     * Ratio = od_value / od_supply * RATIO_SCALE = wbtc_sats * TWAP / od_supply.
+     *
      * @param twap - Current TWAP value
      * @param extraWbtcIn - Additional WBTC being added (for post-action ratio)
      * @param extraWbtcOut - WBTC being removed (for post-action ratio)
@@ -719,9 +902,8 @@ export class ODReserve extends OP_NET {
         }
         reserveWbtc = SafeMath.sub(reserveWbtc, extraWbtcOut);
 
-        // ratio = reserveWbtc * twap * RATIO_SCALE / odSupply
-        // (multiply by RATIO_SCALE to express as a percentage in 1e8)
-        const numerator: u256 = SafeMath.mul(SafeMath.mul(reserveWbtc, twap), RATIO_SCALE);
+        // ratio = reserveWbtc * twap / odSupply
+        const numerator: u256 = SafeMath.mul(reserveWbtc, twap);
         return SafeMath.div(numerator, odSupply);
     }
 
