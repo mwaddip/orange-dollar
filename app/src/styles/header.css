@@ -15,11 +15,38 @@
 }
 
 .logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+
+.logo-coin {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.logo-ring {
+  animation: logo-spin 60s linear infinite;
+  transform-origin: 256px 256px;
+}
+
+@keyframes logo-spin {
+  from { transform: rotate(-90deg); }
+  to   { transform: rotate(270deg); }
+}
+
+.logo-text {
   font-family: var(--font);
-  font-size: 24px;
+  font-size: 16px;
   font-weight: 600;
-  color: var(--orange);
+  color: var(--white);
   letter-spacing: -0.02em;
+}
+
+.logo-accent {
+  color: var(--orange);
 }
 
 .header-right {
