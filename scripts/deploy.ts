@@ -12,19 +12,19 @@
  * contract interaction (not deployment).
  *
  * Prerequisites:
- *   - source ~/projects/sharedenv/opnet-regtest.env
+ *   - source ~/projects/sharedenv/opnet-regtest.env (or opnet-testnet.env)
  *   - WBTC contract already deployed (address in env or passed as arg)
  *   - Build artifacts in build/ directory (npm run build)
  *   - Funded deployer wallet (BTC UTXOs at the deployer's p2tr address)
  *
  * Environment variables:
- *   OPNET_MNEMONIC            -- Deployer wallet mnemonic (required)
- *   OPNET_NODE_URL            -- OPNet node URL (default: https://regtest.opnet.org)
- *   OPNET_NETWORK             -- "regtest" | "testnet" | "bitcoin" (default: regtest)
- *   OPNET_WBTC_ADDRESS        -- WBTC contract address (required)
- *   OPNET_MOTOSWAP_FACTORY    -- MotoSwap factory address (required)
- *   FEE_RATE                  -- Fee rate in sat/vB (default: 5)
- *   GAS_SAT_FEE               -- Gas fee in satoshis (default: 10000)
+ *   OPNET_DEPLOYER_MNEMONIC   -- Deployer wallet mnemonic (required)
+ *   OPNET_NODE_URL             -- OPNet node URL (default: https://testnet.opnet.org)
+ *   OPNET_NETWORK              -- "regtest" | "testnet" | "bitcoin" (default: testnet)
+ *   OPNET_WBTC_ADDRESS         -- WBTC contract address (required)
+ *   OPNET_MOTOSWAP_FACTORY     -- MotoSwap factory address (required)
+ *   FEE_RATE                   -- Fee rate in sat/vB (default: 100)
+ *   GAS_SAT_FEE                -- Gas fee in satoshis (default: 100000)
  *
  * Usage:
  *   npx tsx scripts/deploy.ts
@@ -38,8 +38,8 @@ import {
     MLDSASecurityLevel,
     TransactionFactory,
     BinaryWriter,
-    Address,
-    Wallet,
+    type Address,
+    type Wallet,
     type IDeploymentParameters,
     type UTXO,
     type DeploymentResult,
@@ -67,7 +67,7 @@ function resolveNetwork(name: string): Network {
         case 'bitcoin':
             return networks.bitcoin;
         case 'testnet':
-            return networks.testnet;
+            return networks.opnetTestnet;
         case 'regtest':
             return networks.regtest;
         default:
@@ -144,7 +144,7 @@ async function deployContract(
         mldsaSigner: wallet.mldsaKeypair,
         network,
         feeRate,
-        priorityFee: BigInt(0),
+        priorityFee: 0n,
         gasSatFee,
         bytecode,
         calldata,
@@ -174,13 +174,13 @@ async function deployContract(
 
 async function main(): Promise<void> {
     // Read configuration
-    const mnemonicPhrase = requiredEnv('OPNET_MNEMONIC');
-    const nodeUrl = optionalEnv('OPNET_NODE_URL', 'https://regtest.opnet.org');
-    const networkName = optionalEnv('OPNET_NETWORK', 'regtest');
+    const mnemonicPhrase = requiredEnv('OPNET_DEPLOYER_MNEMONIC');
+    const nodeUrl = optionalEnv('OPNET_NODE_URL', 'https://testnet.opnet.org');
+    const networkName = optionalEnv('OPNET_NETWORK', 'testnet');
     const wbtcAddressHex = requiredEnv('OPNET_WBTC_ADDRESS');
     const factoryAddressHex = requiredEnv('OPNET_MOTOSWAP_FACTORY');
-    const feeRate = parseInt(optionalEnv('FEE_RATE', '5'), 10);
-    const gasSatFee = BigInt(optionalEnv('GAS_SAT_FEE', '10000'));
+    const feeRate = parseInt(optionalEnv('FEE_RATE', '100'), 10);
+    const gasSatFee = BigInt(optionalEnv('GAS_SAT_FEE', '100000'));
 
     const network = resolveNetwork(networkName);
 
@@ -190,9 +190,9 @@ async function main(): Promise<void> {
     console.log(`Fee rate: ${feeRate} sat/vB`);
     console.log(`Gas fee:  ${gasSatFee} sat`);
 
-    // Initialise wallet
+    // Initialise wallet (BIP86 path matching OPWallet)
     const mnemonic = new Mnemonic(mnemonicPhrase, '', network, MLDSASecurityLevel.LEVEL2);
-    const wallet = mnemonic.derive(0);
+    const wallet = mnemonic.deriveOPWallet(undefined, 0, 0, false);
     console.log(`Deployer: ${wallet.p2tr}`);
     console.log(`OPNet ID: ${wallet.address.toHex()}`);
 
@@ -200,9 +200,13 @@ async function main(): Promise<void> {
     const provider = new JSONRpcProvider({ url: nodeUrl, network });
     const factory = new TransactionFactory();
 
-    // Parse addresses
-    const wbtcAddr = Address.fromString(wbtcAddressHex);
-    const factoryAddr = Address.fromString(factoryAddressHex);
+    // Resolve pre-existing contract addresses to Address objects
+    // (needed for BinaryWriter.writeAddress in ODReserve calldata)
+    console.log('\nResolving contract addresses...');
+    const wbtcAddr = await provider.getPublicKeyInfo(wbtcAddressHex, true);
+    const factoryAddr = await provider.getPublicKeyInfo(factoryAddressHex, true);
+    console.log(`  WBTC:    ${wbtcAddr.toHex()}`);
+    console.log(`  Factory: ${factoryAddr.toHex()}`);
 
     // Load bytecode
     const odBytecode = loadBytecode('OD.wasm');
@@ -249,9 +253,11 @@ async function main(): Promise<void> {
     utxos = orcDeploy.nextUtxos;
     deployParams.utxos = utxos;
 
-    // 3. Deploy ODReserve
-    const odAddr = Address.fromString(odDeploy.result.contractAddress);
-    const orcAddr = Address.fromString(orcDeploy.result.contractAddress);
+    // 3. Deploy ODReserve — resolve just-deployed OD/ORC addresses for calldata
+    console.log('\nResolving OD/ORC addresses for ODReserve calldata...');
+    const odAddr = await provider.getPublicKeyInfo(odDeploy.result.contractAddress, true);
+    const orcAddr = await provider.getPublicKeyInfo(orcDeploy.result.contractAddress, true);
+
     const reserveCalldata = buildReserveCalldata(odAddr, orcAddr, wbtcAddr, factoryAddr);
     const reserveDeploy = await deployContract(deployParams, reserveBytecode, reserveCalldata, 'ODReserve');
 

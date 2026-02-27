@@ -42,6 +42,8 @@ interface ProtocolContextValue extends ProtocolState {
   setNetworkName: (name: string) => void;
   connectedAddress: string | null;
   setConnectedAddress: (addr: string | null) => void;
+  walletAddr: Address | undefined;
+  setWalletAddr: (addr: Address | undefined) => void;
   isAdmin: boolean;
   refresh: () => void;
 }
@@ -122,6 +124,7 @@ export function ProtocolProvider({ children }: { children: ReactNode }) {
 
   // -- Wallet connection (set externally) -----------------------------------
   const [connectedAddress, setConnectedAddress] = useState<string | null>(null);
+  const [walletAddr, setWalletAddr] = useState<Address | undefined>(undefined);
 
   // -- Protocol state -------------------------------------------------------
   const [state, setState] = useState<ProtocolState>(INITIAL_STATE);
@@ -213,12 +216,11 @@ export function ProtocolProvider({ children }: { children: ReactNode }) {
       let userOrc = 0n;
       let userWbtc = 0n;
 
-      if (connectedAddress) {
-        const userAddr = Address.fromString(connectedAddress);
+      if (walletAddr) {
         const [userOdRes, userOrcRes, userWbtcRes] = await Promise.all([
-          odContract.balanceOf(userAddr),
-          orcContract.balanceOf(userAddr),
-          wbtcContract.balanceOf(userAddr),
+          odContract.balanceOf(walletAddr),
+          orcContract.balanceOf(walletAddr),
+          wbtcContract.balanceOf(walletAddr),
         ]);
 
         userOd = prop<bigint>(userOdRes, 'balance');
@@ -249,7 +251,7 @@ export function ProtocolProvider({ children }: { children: ReactNode }) {
         error: message,
       }));
     }
-  }, [networkConfig, connectedAddress]);
+  }, [networkConfig, walletAddr]);
 
   // -- Initial fetch + 60 s polling (paused when hidden) --------------------
   useEffect(() => {
@@ -306,10 +308,12 @@ export function ProtocolProvider({ children }: { children: ReactNode }) {
       setNetworkName,
       connectedAddress,
       setConnectedAddress,
+      walletAddr,
+      setWalletAddr,
       isAdmin,
       refresh: fetchAll,
     }),
-    [state, networkConfig, connectedAddress, fetchAll],
+    [state, networkConfig, connectedAddress, walletAddr, fetchAll],
   );
 
   return (

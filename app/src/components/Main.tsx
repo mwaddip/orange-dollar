@@ -73,7 +73,7 @@ export function Main() {
     phase, reserveRatio, equity, twap, twapWindow,
     odSupply, orcSupply, wbtcReserve,
     userOd, userOrc, userWbtc,
-    connectedAddress, networkConfig, refresh,
+    connectedAddress, walletAddr, networkConfig, refresh,
     loading, error,
   } = useProtocol();
 
@@ -84,11 +84,6 @@ export function Main() {
   const provider = useMemo(
     () => new JSONRpcProvider({ url: networkConfig.rpcUrl, network: networkConfig.network }),
     [networkConfig],
-  );
-
-  const senderAddress = useMemo(
-    () => (connectedAddress ? Address.fromString(connectedAddress) : undefined),
-    [connectedAddress],
   );
 
   const mintBurn = useContractCall({
@@ -129,14 +124,14 @@ export function Main() {
     if (action === 'Mint') {
       await mintBurn.execute(async () => {
         const wbtc = getContract<IOP20Contract>(
-          addresses.wbtc, OD_ORC_ABI, provider, networkConfig.network, senderAddress,
+          addresses.wbtc, OD_ORC_ABI, provider, networkConfig.network, walletAddr,
         );
         return wbtc.increaseAllowance(Address.fromString(addresses.reserve), parsed);
       });
       if (mintBurn.status === 'error') return;
       await mintBurn.execute(async () => {
         const r = getContract<IODReserveWrite>(
-          addresses.reserve, OD_RESERVE_ABI, provider, networkConfig.network, senderAddress,
+          addresses.reserve, OD_RESERVE_ABI, provider, networkConfig.network, walletAddr,
         );
         return token === 'OD' ? r.mintOD(parsed) : r.mintORC(parsed);
       });
@@ -144,19 +139,19 @@ export function Main() {
       const burnAddr = token === 'OD' ? addresses.od : addresses.orc;
       await mintBurn.execute(async () => {
         const tok = getContract<IOP20Contract>(
-          burnAddr, OD_ORC_ABI, provider, networkConfig.network, senderAddress,
+          burnAddr, OD_ORC_ABI, provider, networkConfig.network, walletAddr,
         );
         return tok.increaseAllowance(Address.fromString(addresses.reserve), parsed);
       });
       if (mintBurn.status === 'error') return;
       await mintBurn.execute(async () => {
         const r = getContract<IODReserveWrite>(
-          addresses.reserve, OD_RESERVE_ABI, provider, networkConfig.network, senderAddress,
+          addresses.reserve, OD_RESERVE_ABI, provider, networkConfig.network, walletAddr,
         );
         return token === 'OD' ? r.burnOD(parsed) : r.burnORC(parsed);
       });
     }
-  }, [connectedAddress, parsed, networkConfig, provider, senderAddress, action, token, mintBurn]);
+  }, [connectedAddress, parsed, networkConfig, provider, walletAddr, action, token, mintBurn]);
 
   const isBusy = mintBurn.status === 'simulating' || mintBurn.status === 'awaiting_approval' || mintBurn.status === 'broadcasting';
 

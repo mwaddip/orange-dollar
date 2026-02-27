@@ -20,12 +20,12 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     name: 'testnet',
     label: 'Testnet',
     rpcUrl: 'https://testnet.opnet.org/api/v1/json-rpc',
-    network: networks.testnet,
+    network: networks.opnetTestnet,
     addresses: {
       od: '',        // Set after testnet deployment
       orc: '',       // Set after testnet deployment
       reserve: '',   // Set after testnet deployment
-      wbtc: '',      // Set after testnet deployment
+      wbtc: 'opt1sqzre57dd4vzgj7gcn4fyuk4aswmlt3e7esfh5e9f',
       factory: '0xa02aa5ca4c307107484d5fb690d811df1cf526f8de204d24528653dcae369a0f',
       router: '0x0e6ff1f2d7db7556cb37729e3738f4dae82659b984b2621fab08e1111b1b937a',
     },

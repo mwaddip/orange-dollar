@@ -12,10 +12,23 @@
 ## 2. Brand Colors (Locked)
 
 Primary Orange: #F7931A\
-Soft White (icon elements): #F5F7FA\
+Pure White: #FFFFFF\
+Soft White: #F5F7FA\
 Primary Text (near-black): #1A1A1A\
-Background Light: #FFFFFF\
 Background Dark: #0F1113
+
+Use pure white (#FFFFFF) for:
+- Page backgrounds (light mode)
+- Large empty surfaces
+- Documentation pages
+
+Use soft white (#F5F7FA) for:
+- Logo internal elements
+- Dividers
+- Cards
+- Subtle UI surfaces
+- Icons
+- Button text on colored backgrounds
 
 Rules: - Always use EXACT #F7931A for brand consistency - Do not
 introduce alternative orange shades - Prefer neutral-heavy UI with
@@ -69,7 +82,7 @@ Container Width: - 1100px--1280px max
 
 ### Primary Button
 
-background: #F7931A color: #FFFFFF border-radius: 8px font-weight: 500
+background: #F7931A color: #F5F7FA border-radius: 8px font-weight: 500
 padding: 12px 20px
 
 Hover: background: #E68212

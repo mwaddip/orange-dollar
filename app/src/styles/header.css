@@ -55,6 +55,18 @@
   gap: 12px;
 }
 
+.header-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-light);
+  text-decoration: none;
+  transition: color 0.15s ease-out;
+}
+
+.header-link:hover {
+  color: var(--orange);
+}
+
 .network-select {
   background: var(--bg-surface);
   color: var(--gray-light);
@@ -67,7 +79,7 @@
 
 .wallet-btn {
   background: var(--orange);
-  color: #FFFFFF;
+  color: #F5F7FA;
   font-size: 15px;
   font-weight: 500;
   padding: 8px 20px;

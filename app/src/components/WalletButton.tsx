@@ -8,14 +8,15 @@ function truncateAddress(addr: string): string {
 }
 
 export function WalletButton() {
-  const { openConnectModal, disconnect, walletAddress, connecting } =
+  const { openConnectModal, disconnect, walletAddress, address, connecting } =
     useWalletConnect();
-  const { setConnectedAddress } = useProtocol();
+  const { setConnectedAddress, setWalletAddr } = useProtocol();
 
   // Bridge wallet address into ProtocolContext
   useEffect(() => {
     setConnectedAddress(walletAddress ?? null);
-  }, [walletAddress, setConnectedAddress]);
+    setWalletAddr(address ?? undefined);
+  }, [walletAddress, address, setConnectedAddress, setWalletAddr]);
 
   if (connecting) {
     return (

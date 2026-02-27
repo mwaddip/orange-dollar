@@ -31,34 +31,34 @@
  *   - Deployer wallet has BTC UTXOs for transaction fees
  *
  * Environment variables:
- *   OPNET_MNEMONIC            -- Deployer wallet mnemonic (required)
- *   OPNET_NODE_URL            -- OPNet node URL (default: https://regtest.opnet.org)
- *   OPNET_NETWORK             -- "regtest" | "testnet" | "bitcoin" (default: regtest)
- *   OD_ADDRESS                -- Deployed OD contract address (required)
- *   ORC_ADDRESS               -- Deployed ORC contract address (required)
- *   ODRESERVE_ADDRESS         -- Deployed ODReserve contract address (required)
- *   OPNET_WBTC_ADDRESS        -- WBTC contract address (required)
- *   OPNET_MOTOSWAP_FACTORY    -- MotoSwap Factory address (required)
- *   OPNET_MOTOSWAP_ROUTER     -- MotoSwap Router address (required)
+ *   OPNET_DEPLOYER_MNEMONIC   -- Deployer wallet mnemonic (required)
+ *   OPNET_NODE_URL             -- OPNet node URL (default: https://testnet.opnet.org)
+ *   OPNET_NETWORK              -- "regtest" | "testnet" | "bitcoin" (default: testnet)
+ *   OD_ADDRESS                 -- Deployed OD contract address (required)
+ *   ORC_ADDRESS                -- Deployed ORC contract address (required)
+ *   ODRESERVE_ADDRESS          -- Deployed ODReserve contract address (required)
+ *   OPNET_WBTC_ADDRESS         -- WBTC contract address (required)
+ *   OPNET_MOTOSWAP_FACTORY     -- MotoSwap Factory address (required)
+ *   OPNET_MOTOSWAP_ROUTER      -- MotoSwap Router address (required)
  *
- *   SEED_WBTC_AMOUNT          -- WBTC to deposit in SEEDING phase (default: 1_00000000 = 1 WBTC)
- *   SEED_PRICE                -- BTC/USD price in 1e8 (default: 10_000_000_000_000 = $100,000)
- *   PREMINT_OD_AMOUNT         -- OD to premint (default: computed for ~500% ratio)
- *   LIQUIDITY_WBTC            -- WBTC to pair with OD in pool (default: 10000000 = 0.1 WBTC)
- *   LIQUIDITY_OD              -- OD to pair with WBTC in pool (default: computed from seedPrice)
+ *   SEED_WBTC_AMOUNT           -- WBTC to deposit in SEEDING phase (default: 1_00000000 = 1 WBTC)
+ *   SEED_PRICE                 -- BTC/USD price in 1e8 (default: 10_000_000_000_000 = $100,000)
+ *   PREMINT_OD_AMOUNT          -- OD to premint (default: computed for ~500% ratio)
+ *   LIQUIDITY_WBTC             -- WBTC to pair with OD in pool (default: 10000000 = 0.1 WBTC)
+ *   LIQUIDITY_OD               -- OD to pair with WBTC in pool (default: computed from seedPrice)
  *
  * Usage:
  *   npx tsx scripts/bootstrap.ts [step]
  *
- *   step: optional step number (1-8) to run a single step.
+ *   step: optional step number (0-8) to run a single step.
  *         If omitted, runs all steps in sequence.
  */
 
 import {
     Mnemonic,
     MLDSASecurityLevel,
-    Address,
-    Wallet,
+    type Address,
+    type Wallet,
 } from '@btc-vision/transaction';
 import {
     getContract,
@@ -72,6 +72,13 @@ import {
     OP_20_ABI,
 } from 'opnet';
 import { networks, type Network } from '@btc-vision/bitcoin';
+
+import {
+    OD_ORC_ABI,
+    OD_RESERVE_ABI,
+    type IODReserveContract,
+    type IODORCContract,
+} from './abi';
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
@@ -93,7 +100,7 @@ function resolveNetwork(name: string): Network {
         case 'bitcoin':
             return networks.bitcoin;
         case 'testnet':
-            return networks.testnet;
+            return networks.opnetTestnet;
         case 'regtest':
             return networks.regtest;
         default:
@@ -110,14 +117,15 @@ interface BootstrapContext {
     network: Network;
     txParams: TransactionParameters;
 
-    // Contract instances (OP-20 and MotoSwap, via opnet getContract)
-    od: IOP20Contract;
-    orc: IOP20Contract;
+    // Contract instances
+    od: IODORCContract & IOP20Contract;
+    orc: IODORCContract & IOP20Contract;
     wbtc: IOP20Contract;
+    reserve: IODReserveContract;
     factory: IMotoswapFactoryContract;
     router: IMotoswapRouterContract;
 
-    // Addresses
+    // Resolved Address objects (needed for contract method params)
     odAddr: Address;
     orcAddr: Address;
     reserveAddr: Address;
@@ -146,55 +154,54 @@ async function step0_setReserve(ctx: BootstrapContext): Promise<void> {
     console.log('\n=== Step 0: Set Reserve Address on OD & ORC ===');
     console.log(`  Reserve address: ${ctx.reserveAddr.toHex()}`);
 
-    // OD.setReserve(address) — selector: 0xb86a7d16
-    // ORC.setReserve(address) — selector: 0xb86a7d16
+    // OD.setReserve(reserveAddr)
     console.log('  Calling OD.setReserve...');
-    console.log('  TODO: Implement raw signInteraction for OD.setReserve');
-    console.log('  Selector: 0xb86a7d16');
-    console.log('  Calldata: selector + address(reserveAddr)');
-    console.log('');
+    const odResult = await ctx.od.setReserve(ctx.reserveAddr);
+    if (odResult.revert) {
+        throw new Error(`OD.setReserve reverted: ${odResult.revert}`);
+    }
+    const odTx = await odResult.sendTransaction(ctx.txParams);
+    console.log(`  OD.setReserve TX: ${odTx.transactionId}`);
+
+    // ORC.setReserve(reserveAddr)
     console.log('  Calling ORC.setReserve...');
-    console.log('  TODO: Implement raw signInteraction for ORC.setReserve');
-    console.log('  Selector: 0xb86a7d16');
-    console.log('  Calldata: selector + address(reserveAddr)');
+    const orcResult = await ctx.orc.setReserve(ctx.reserveAddr);
+    if (orcResult.revert) {
+        throw new Error(`ORC.setReserve reverted: ${orcResult.revert}`);
+    }
+    const orcTx = await orcResult.sendTransaction(ctx.txParams);
+    console.log(`  ORC.setReserve TX: ${orcTx.transactionId}`);
 }
 
 /**
  * Step 1: Seed the reserve by depositing WBTC and receiving ORC.
  *
  * The deployer/investor calls:
- *   1. WBTC.approve(reserve, amount)   -- allow reserve to pull WBTC
- *   2. ODReserve.mintORC(wbtcAmount)    -- deposit WBTC, receive ORC
+ *   1. WBTC.increaseAllowance(reserve, amount)  -- allow reserve to pull WBTC
+ *   2. ODReserve.mintORC(wbtcAmount)             -- deposit WBTC, receive ORC
  */
 async function step1_seedReserve(ctx: BootstrapContext): Promise<void> {
     console.log('\n=== Step 1: Seed Reserve (mintORC) ===');
     console.log(`  Depositing ${ctx.seedWbtcAmount} WBTC sats into the reserve`);
 
-    // 1a. Approve WBTC spending by the reserve
+    // 1. Approve WBTC spending by the reserve
     console.log('  Approving WBTC...');
     const approveResult = await ctx.wbtc.increaseAllowance(ctx.reserveAddr, ctx.seedWbtcAmount);
-    if ('error' in approveResult) {
-        throw new Error(`WBTC approve simulation failed: ${approveResult.error}`);
+    if (approveResult.revert) {
+        throw new Error(`WBTC approve reverted: ${approveResult.revert}`);
     }
     const approveTx = await approveResult.sendTransaction(ctx.txParams);
     console.log(`  Approve TX: ${approveTx.transactionId}`);
 
-    // 1b. Call mintORC on the reserve
-    // ODReserve.mintORC is not in the standard OP-20 ABI, so we need to interact
-    // with it via raw calldata using signInteraction from @btc-vision/transaction.
-    //
-    // The mintORC selector is SHA256("mintORC(uint256)")[0..3].
-    // Calldata: selector (4 bytes) + u256(wbtcAmount) (32 bytes)
-    //
-    // TODO: Build a custom ABI for ODReserve or use signInteraction directly.
-    //       For now, this step documents the required call pattern.
+    // 2. Call mintORC on the reserve
     console.log('  Calling mintORC...');
-    console.log('  TODO: Implement raw signInteraction for ODReserve.mintORC');
-    console.log('  The mintORC selector is the SHA256 first 4 bytes of "mintORC(uint256)"');
-    console.log('  Calldata: selector + u256(wbtcAmount)');
-    console.log('');
-    console.log('  For regtest, you can use the opnet CLI or build a custom ABI.');
-    console.log('  See the signInteraction pattern in @btc-vision/transaction docs.');
+    const mintResult = await ctx.reserve.mintORC(ctx.seedWbtcAmount);
+    if (mintResult.revert) {
+        throw new Error(`mintORC reverted: ${mintResult.revert}`);
+    }
+    const mintTx = await mintResult.sendTransaction(ctx.txParams);
+    console.log(`  mintORC TX: ${mintTx.transactionId}`);
+    console.log(`  ORC minted: ${mintResult.properties['orcMinted']}`);
 }
 
 /**
@@ -206,12 +213,13 @@ async function step2_advancePhase(ctx: BootstrapContext): Promise<void> {
     console.log('\n=== Step 2: Advance Phase (SEEDING -> PREMINT) ===');
     console.log(`  Seed price: ${ctx.seedPrice} (WBTC/USD in 1e8 scale)`);
 
-    // ODReserve.advancePhase(uint256 seedPrice)
-    // Selector: SHA256("advancePhase(uint256)")[0..3] = 0xd1ee3cb1
     console.log('  Calling advancePhase...');
-    console.log('  TODO: Implement raw signInteraction for ODReserve.advancePhase');
-    console.log('  Selector: 0xd1ee3cb1');
-    console.log('  Calldata: selector + u256(seedPrice)');
+    const result = await ctx.reserve.advancePhase(ctx.seedPrice);
+    if (result.revert) {
+        throw new Error(`advancePhase reverted: ${result.revert}`);
+    }
+    const tx = await result.sendTransaction(ctx.txParams);
+    console.log(`  advancePhase TX: ${tx.transactionId}`);
 }
 
 /**
@@ -223,18 +231,21 @@ async function step3_premintOD(ctx: BootstrapContext): Promise<void> {
     console.log('\n=== Step 3: Premint OD ===');
     console.log(`  Preminting ${ctx.premintOdAmount} OD sats`);
 
-    // ODReserve.premintOD(uint256 odAmount)
     console.log('  Calling premintOD...');
-    console.log('  TODO: Implement raw signInteraction for ODReserve.premintOD');
-    console.log('  Calldata: selector + u256(odAmount)');
+    const result = await ctx.reserve.premintOD(ctx.premintOdAmount);
+    if (result.revert) {
+        throw new Error(`premintOD reverted: ${result.revert}`);
+    }
+    const tx = await result.sendTransaction(ctx.txParams);
+    console.log(`  premintOD TX: ${tx.transactionId}`);
 }
 
 /**
  * Step 4: Approve MotoSwap Router to spend WBTC and OD.
  *
  * Required before addLiquidity:
- *   - WBTC.approve(router, liquidityWbtc)
- *   - OD.approve(router, liquidityOd)
+ *   - WBTC.increaseAllowance(router, liquidityWbtc)
+ *   - OD.increaseAllowance(router, liquidityOd)
  */
 async function step4_approveRouter(ctx: BootstrapContext): Promise<void> {
     console.log('\n=== Step 4: Approve Router ===');
@@ -242,8 +253,8 @@ async function step4_approveRouter(ctx: BootstrapContext): Promise<void> {
     // Approve WBTC
     console.log(`  Approving ${ctx.liquidityWbtc} WBTC sats for router...`);
     const wbtcApprove = await ctx.wbtc.increaseAllowance(ctx.routerAddr, ctx.liquidityWbtc);
-    if ('error' in wbtcApprove) {
-        throw new Error(`WBTC approve for router failed: ${wbtcApprove.error}`);
+    if (wbtcApprove.revert) {
+        throw new Error(`WBTC approve for router reverted: ${wbtcApprove.revert}`);
     }
     const wbtcTx = await wbtcApprove.sendTransaction(ctx.txParams);
     console.log(`  WBTC approve TX: ${wbtcTx.transactionId}`);
@@ -251,8 +262,8 @@ async function step4_approveRouter(ctx: BootstrapContext): Promise<void> {
     // Approve OD
     console.log(`  Approving ${ctx.liquidityOd} OD sats for router...`);
     const odApprove = await ctx.od.increaseAllowance(ctx.routerAddr, ctx.liquidityOd);
-    if ('error' in odApprove) {
-        throw new Error(`OD approve for router failed: ${odApprove.error}`);
+    if (odApprove.revert) {
+        throw new Error(`OD approve for router reverted: ${odApprove.revert}`);
     }
     const odTx = await odApprove.sendTransaction(ctx.txParams);
     console.log(`  OD approve TX: ${odTx.transactionId}`);
@@ -268,8 +279,8 @@ async function step5_createPool(ctx: BootstrapContext): Promise<Address> {
     console.log('\n=== Step 5: Create MotoSwap WBTC/OD Pool ===');
 
     const createResult = await ctx.factory.createPool(ctx.wbtcAddr, ctx.odAddr);
-    if ('error' in createResult) {
-        throw new Error(`createPool simulation failed: ${createResult.error}`);
+    if (createResult.revert) {
+        throw new Error(`createPool reverted: ${createResult.revert}`);
     }
 
     const poolAddress = createResult.properties.address;
@@ -299,14 +310,14 @@ async function step6_addLiquidity(ctx: BootstrapContext): Promise<void> {
         ctx.odAddr,
         ctx.liquidityWbtc,
         ctx.liquidityOd,
-        BigInt(1),             // amountAMin: accept any (regtest)
-        BigInt(1),             // amountBMin: accept any (regtest)
+        BigInt(1),             // amountAMin: accept any slippage
+        BigInt(1),             // amountBMin: accept any slippage
         ctx.wallet.address,    // LP tokens to deployer
         deadline,
     );
 
-    if ('error' in addLiqResult) {
-        throw new Error(`addLiquidity simulation failed: ${addLiqResult.error}`);
+    if (addLiqResult.revert) {
+        throw new Error(`addLiquidity reverted: ${addLiqResult.revert}`);
     }
 
     const tx = await addLiqResult.sendTransaction(ctx.txParams);
@@ -322,16 +333,17 @@ async function step6_addLiquidity(ctx: BootstrapContext): Promise<void> {
  * This records the pool address, determines token ordering, and takes the
  * initial TWAP snapshot.
  */
-async function step7_initPool(_ctx: BootstrapContext, poolAddress: Address): Promise<void> {
+async function step7_initPool(ctx: BootstrapContext, poolAddress: Address): Promise<void> {
     console.log('\n=== Step 7: Register Pool with ODReserve ===');
     console.log(`  Pool address: ${poolAddress.toHex()}`);
 
-    // ODReserve.initPool(address poolAddress)
-    // TODO: Implement raw signInteraction for ODReserve.initPool
-    //       Calldata: selector + address(poolAddress)
     console.log('  Calling initPool...');
-    console.log('  TODO: Implement raw signInteraction for ODReserve.initPool');
-    console.log('  Calldata: selector + address(poolAddress)');
+    const result = await ctx.reserve.initPool(poolAddress);
+    if (result.revert) {
+        throw new Error(`initPool reverted: ${result.revert}`);
+    }
+    const tx = await result.sendTransaction(ctx.txParams);
+    console.log(`  initPool TX: ${tx.transactionId}`);
 }
 
 /**
@@ -371,9 +383,9 @@ async function main(): Promise<void> {
     }
 
     // Read configuration
-    const mnemonicPhrase = requiredEnv('OPNET_MNEMONIC');
-    const nodeUrl = optionalEnv('OPNET_NODE_URL', 'https://regtest.opnet.org');
-    const networkName = optionalEnv('OPNET_NETWORK', 'regtest');
+    const mnemonicPhrase = requiredEnv('OPNET_DEPLOYER_MNEMONIC');
+    const nodeUrl = optionalEnv('OPNET_NODE_URL', 'https://testnet.opnet.org');
+    const networkName = optionalEnv('OPNET_NETWORK', 'testnet');
 
     const odAddressHex = requiredEnv('OD_ADDRESS');
     const orcAddressHex = requiredEnv('ORC_ADDRESS');
@@ -413,38 +425,47 @@ async function main(): Promise<void> {
     console.log(`Liquidity WBTC:   ${liquidityWbtc} sats`);
     console.log(`Liquidity OD:     ${liquidityOd} sats`);
 
-    // Initialise wallet
+    // Initialise wallet (BIP86 path matching OPWallet)
     const mnemonic = new Mnemonic(mnemonicPhrase, '', network, MLDSASecurityLevel.LEVEL2);
-    const wallet = mnemonic.derive(0);
+    const wallet = mnemonic.deriveOPWallet(undefined, 0, 0, false);
     console.log(`\nDeployer:         ${wallet.p2tr}`);
     console.log(`OPNet ID:         ${wallet.address.toHex()}`);
 
     // Initialise provider
     const provider = new JSONRpcProvider({ url: nodeUrl, network });
 
-    // Parse addresses
-    const odAddr = Address.fromString(odAddressHex);
-    const orcAddr = Address.fromString(orcAddressHex);
-    const reserveAddr = Address.fromString(reserveAddressHex);
-    const wbtcAddr = Address.fromString(wbtcAddressHex);
-    const factoryAddr = Address.fromString(factoryAddressHex);
-    const routerAddr = Address.fromString(routerAddressHex);
+    // Resolve all contract addresses to Address objects (async RPC calls)
+    console.log('\nResolving contract addresses...');
+    const [odAddr, orcAddr, reserveAddr, wbtcAddr, factoryAddr, routerAddr] =
+        await Promise.all([
+            provider.getPublicKeyInfo(odAddressHex, true),
+            provider.getPublicKeyInfo(orcAddressHex, true),
+            provider.getPublicKeyInfo(reserveAddressHex, true),
+            provider.getPublicKeyInfo(wbtcAddressHex, true),
+            provider.getPublicKeyInfo(factoryAddressHex, true),
+            provider.getPublicKeyInfo(routerAddressHex, true),
+        ]);
+    console.log('  All addresses resolved.');
 
     // Create contract instances using opnet's getContract
-    const od = getContract<IOP20Contract>(
-        odAddr, OP_20_ABI, provider, network, wallet.address,
+    // Note: getContract first arg accepts string | Address — pass strings directly
+    const od = getContract<IODORCContract & IOP20Contract>(
+        odAddressHex, OD_ORC_ABI, provider, network, wallet.address,
     );
-    const orc = getContract<IOP20Contract>(
-        orcAddr, OP_20_ABI, provider, network, wallet.address,
+    const orc = getContract<IODORCContract & IOP20Contract>(
+        orcAddressHex, OD_ORC_ABI, provider, network, wallet.address,
     );
     const wbtc = getContract<IOP20Contract>(
-        wbtcAddr, OP_20_ABI, provider, network, wallet.address,
+        wbtcAddressHex, OP_20_ABI, provider, network, wallet.address,
+    );
+    const reserve = getContract<IODReserveContract>(
+        reserveAddressHex, OD_RESERVE_ABI, provider, network, wallet.address,
     );
     const factoryContract = getContract<IMotoswapFactoryContract>(
-        factoryAddr, MotoSwapFactoryAbi, provider, network, wallet.address,
+        factoryAddressHex, MotoSwapFactoryAbi, provider, network, wallet.address,
     );
     const routerContract = getContract<IMotoswapRouterContract>(
-        routerAddr, MOTOSWAP_ROUTER_ABI, provider, network, wallet.address,
+        routerAddressHex, MOTOSWAP_ROUTER_ABI, provider, network, wallet.address,
     );
 
     // Transaction parameters for sending transactions via opnet
@@ -453,7 +474,7 @@ async function main(): Promise<void> {
         mldsaSigner: wallet.mldsaKeypair,
         refundTo: wallet.p2tr,
         maximumAllowedSatToSpend: BigInt(100_000),
-        feeRate: 10,
+        feeRate: 100,
         network,
     };
 
@@ -463,9 +484,10 @@ async function main(): Promise<void> {
         wallet,
         network,
         txParams,
-        od: od as unknown as IOP20Contract,
-        orc: orc as unknown as IOP20Contract,
+        od: od as unknown as IODORCContract & IOP20Contract,
+        orc: orc as unknown as IODORCContract & IOP20Contract,
         wbtc: wbtc as unknown as IOP20Contract,
+        reserve: reserve as unknown as IODReserveContract,
         factory: factoryContract as unknown as IMotoswapFactoryContract,
         router: routerContract as unknown as IMotoswapRouterContract,
         odAddr,
@@ -532,7 +554,7 @@ async function main(): Promise<void> {
                     // Try to look up the pool from the factory
                     console.log('  Looking up pool address from factory...');
                     const poolResult = await ctx.factory.getPool(ctx.wbtcAddr, ctx.odAddr);
-                    if ('error' in poolResult) {
+                    if (poolResult.revert) {
                         throw new Error('Pool not found. Run step 5 first.');
                     }
                     poolAddress = poolResult.properties.pool;
@@ -569,16 +591,10 @@ async function main(): Promise<void> {
         }
     }
 
-    console.log('\n=== Bootstrap Summary ===');
-    console.log('Steps 1-7 set up the contracts and pool.');
+    console.log('\n=== Bootstrap Complete ===');
+    console.log('Steps 0-7 set up the contracts and pool.');
     console.log('Step 8 requires waiting for 6 blocks.');
     console.log('After 6 blocks, any user interaction triggers LIVE mode.');
-    console.log('');
-    console.log('NOTE: Steps 1, 2, 3, and 7 require direct ODReserve interaction');
-    console.log('via signInteraction (not the OP-20 ABI). These are marked as TODO');
-    console.log('and will need a custom ABI or raw calldata encoding to execute.');
-    console.log('The standard OP-20 steps (approve, pool creation, liquidity) use');
-    console.log('the opnet getContract pattern and should work out of the box.');
 
     // Cleanup
     mnemonic.zeroize();
