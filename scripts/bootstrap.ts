@@ -3,6 +3,9 @@
  *
  * This script walks through the entire bootstrap lifecycle:
  *
+ *   Post-deploy setup:
+ *     Step 0. Owner calls OD.setReserve(reserveAddr) and ORC.setReserve(reserveAddr)
+ *
  *   Phase 0 (SEEDING):
  *     Step 1. Investor(s) call mintORC() to seed the reserve with WBTC
  *
@@ -131,6 +134,30 @@ interface BootstrapContext {
 }
 
 // ── Step implementations ────────────────────────────────────────────────────
+
+/**
+ * Step 0: Set the ODReserve address on OD and ORC tokens.
+ *
+ * This must be done after deployment, before any other step.
+ * OD.setReserve(reserveAddr) and ORC.setReserve(reserveAddr) are owner-only,
+ * one-shot calls that link the tokens to the reserve contract.
+ */
+async function step0_setReserve(ctx: BootstrapContext): Promise<void> {
+    console.log('\n=== Step 0: Set Reserve Address on OD & ORC ===');
+    console.log(`  Reserve address: ${ctx.reserveAddr.toHex()}`);
+
+    // OD.setReserve(address) — selector: 0xb86a7d16
+    // ORC.setReserve(address) — selector: 0xb86a7d16
+    console.log('  Calling OD.setReserve...');
+    console.log('  TODO: Implement raw signInteraction for OD.setReserve');
+    console.log('  Selector: 0xb86a7d16');
+    console.log('  Calldata: selector + address(reserveAddr)');
+    console.log('');
+    console.log('  Calling ORC.setReserve...');
+    console.log('  TODO: Implement raw signInteraction for ORC.setReserve');
+    console.log('  Selector: 0xb86a7d16');
+    console.log('  Calldata: selector + address(reserveAddr)');
+}
 
 /**
  * Step 1: Seed the reserve by depositing WBTC and receiving ORC.
@@ -337,9 +364,9 @@ async function main(): Promise<void> {
     // Parse optional step argument
     const stepArg = process.argv[2];
     const singleStep = stepArg ? parseInt(stepArg, 10) : null;
-    if (singleStep !== null && (isNaN(singleStep) || singleStep < 1 || singleStep > 8)) {
+    if (singleStep !== null && (isNaN(singleStep) || singleStep < 0 || singleStep > 8)) {
         console.error('Usage: npx tsx scripts/bootstrap.ts [step]');
-        console.error('  step: 1-8 (optional, runs all if omitted)');
+        console.error('  step: 0-8 (optional, runs all if omitted)');
         process.exit(1);
     }
 
@@ -460,6 +487,11 @@ async function main(): Promise<void> {
     let poolAddress: Address | null = null;
 
     const steps: Array<{ num: number; name: string; fn: () => Promise<void> }> = [
+        {
+            num: 0,
+            name: 'Set Reserve on OD & ORC',
+            fn: () => step0_setReserve(ctx),
+        },
         {
             num: 1,
             name: 'Seed Reserve (mintORC)',

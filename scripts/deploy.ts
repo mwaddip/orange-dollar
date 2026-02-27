@@ -2,29 +2,14 @@
  * deploy.ts -- Deploy OD, ORC, and ODReserve contracts to OPNet.
  *
  * Deployment sequence:
- *   1. Deploy OD       (onDeployment reads: reserveAddress)
- *   2. Deploy ORC      (onDeployment reads: reserveAddress)
+ *   1. Deploy OD       (no constructor args — reserve set post-deploy)
+ *   2. Deploy ORC      (no constructor args — reserve set post-deploy)
  *   3. Deploy ODReserve (onDeployment reads: odAddr, orcAddr, wbtcAddr, factoryAddr)
+ *   4. Call OD.setReserve(odReserveAddress)   — owner-only, one-shot
+ *   5. Call ORC.setReserve(odReserveAddress)  — owner-only, one-shot
  *
- * Circular dependency:
- *   OD and ORC store the ODReserve address at deployment time (immutable).
- *   ODReserve stores the OD and ORC addresses at deployment time.
- *   We cannot deploy ODReserve first because it needs OD/ORC addresses,
- *   and we cannot deploy OD/ORC first because they need the ODReserve address.
- *
- * Resolution strategy (regtest/testnet):
- *   Option A -- Pre-compute the ODReserve address from the deployer's nonce
- *               before deploying OD/ORC. This is the cleanest approach but
- *               requires knowing the OPNet address derivation formula.
- *   Option B -- Deploy OD/ORC with a placeholder reserve address, then deploy
- *               ODReserve, then upgrade OD/ORC via onUpdate to fix the address.
- *               OD/ORC currently have empty onUpdate() stubs, so this requires
- *               adding update logic first.
- *   Option C -- Deploy all three with known-good addresses from a previous run.
- *               Useful for re-deployment to the same environment.
- *
- *   This script uses Option A when ODRESERVE_ADDRESS is provided (pre-computed),
- *   and falls back to a sequential deploy that logs all addresses for Option C.
+ * Steps 4-5 are handled by bootstrap.ts (step 0) since they require
+ * contract interaction (not deployment).
  *
  * Prerequisites:
  *   - source ~/projects/sharedenv/opnet-regtest.env
@@ -38,7 +23,6 @@
  *   OPNET_NETWORK             -- "regtest" | "testnet" | "bitcoin" (default: regtest)
  *   OPNET_WBTC_ADDRESS        -- WBTC contract address (required)
  *   OPNET_MOTOSWAP_FACTORY    -- MotoSwap factory address (required)
- *   ODRESERVE_ADDRESS         -- Pre-computed ODReserve address (optional, for Option A)
  *   FEE_RATE                  -- Fee rate in sat/vB (default: 5)
  *   GAS_SAT_FEE               -- Gas fee in satoshis (default: 10000)
  *
@@ -110,24 +94,6 @@ function loadBytecode(filename: string): Uint8Array {
 }
 
 // ── Calldata builders ───────────────────────────────────────────────────────
-
-/**
- * Build calldata for OD.onDeployment(reserveAddress: Address).
- */
-function buildOdCalldata(reserveAddress: Address): Uint8Array {
-    const writer = new BinaryWriter();
-    writer.writeAddress(reserveAddress);
-    return writer.getBuffer();
-}
-
-/**
- * Build calldata for ORC.onDeployment(reserveAddress: Address).
- */
-function buildOrcCalldata(reserveAddress: Address): Uint8Array {
-    const writer = new BinaryWriter();
-    writer.writeAddress(reserveAddress);
-    return writer.getBuffer();
-}
 
 /**
  * Build calldata for ODReserve.onDeployment(odAddr, orcAddr, wbtcAddr, factoryAddr).
@@ -213,7 +179,6 @@ async function main(): Promise<void> {
     const networkName = optionalEnv('OPNET_NETWORK', 'regtest');
     const wbtcAddressHex = requiredEnv('OPNET_WBTC_ADDRESS');
     const factoryAddressHex = requiredEnv('OPNET_MOTOSWAP_FACTORY');
-    const precomputedReserveHex = process.env['ODRESERVE_ADDRESS'] || '';
     const feeRate = parseInt(optionalEnv('FEE_RATE', '5'), 10);
     const gasSatFee = BigInt(optionalEnv('GAS_SAT_FEE', '10000'));
 
@@ -262,27 +227,6 @@ async function main(): Promise<void> {
 
     console.log(`\nInitial UTXOs: ${utxos.length}`);
 
-    // ── Determine reserve address for OD/ORC deployment ─────────────────
-
-    let reserveAddrForTokens: Address;
-
-    if (precomputedReserveHex) {
-        // Option A: Pre-computed address
-        reserveAddrForTokens = Address.fromString(precomputedReserveHex);
-        console.log(`\nUsing pre-computed ODReserve address: ${precomputedReserveHex}`);
-    } else {
-        // Fallback: use deployer address as placeholder.
-        // OD/ORC will restrict mint/burn to this address, which means only
-        // the deployer can mint/burn until the contracts are upgraded.
-        //
-        // TODO: Implement onUpdate in OD/ORC to accept a new reserve address,
-        //       or implement address pre-computation from the deployer nonce.
-        reserveAddrForTokens = wallet.address;
-        console.log('\nWARNING: No ODRESERVE_ADDRESS set. Using deployer address as placeholder.');
-        console.log('         OD/ORC mint/burn will be restricted to the deployer address.');
-        console.log('         Set ODRESERVE_ADDRESS for production deployments.');
-    }
-
     // ── Deploy contracts ────────────────────────────────────────────────
 
     const deployParams: DeployParams = {
@@ -295,15 +239,13 @@ async function main(): Promise<void> {
         utxos,
     };
 
-    // 1. Deploy OD
-    const odCalldata = buildOdCalldata(reserveAddrForTokens);
-    const odDeploy = await deployContract(deployParams, odBytecode, odCalldata, 'OD (Orange Dollar)');
+    // 1. Deploy OD (no constructor calldata — reserve set via setReserve post-deploy)
+    const odDeploy = await deployContract(deployParams, odBytecode, new Uint8Array(0), 'OD (Orange Dollar)');
     utxos = odDeploy.nextUtxos;
     deployParams.utxos = utxos;
 
-    // 2. Deploy ORC
-    const orcCalldata = buildOrcCalldata(reserveAddrForTokens);
-    const orcDeploy = await deployContract(deployParams, orcBytecode, orcCalldata, 'ORC (Orange Reserve Coin)');
+    // 2. Deploy ORC (no constructor calldata)
+    const orcDeploy = await deployContract(deployParams, orcBytecode, new Uint8Array(0), 'ORC (Orange Reserve Coin)');
     utxos = orcDeploy.nextUtxos;
     deployParams.utxos = utxos;
 
@@ -322,20 +264,9 @@ async function main(): Promise<void> {
     console.log(`WBTC address:       ${wbtcAddressHex}`);
     console.log(`Factory address:    ${factoryAddressHex}`);
 
-    if (!precomputedReserveHex) {
-        console.log('\n--- IMPORTANT ---');
-        console.log('OD and ORC were deployed with the deployer address as the reserve.');
-        console.log('The actual ODReserve address is:', reserveDeploy.result.contractAddress);
-        console.log('');
-        console.log('To fix this, either:');
-        console.log('  1. Re-deploy with ODRESERVE_ADDRESS set to the address above');
-        console.log('  2. Add setReserve() or onUpdate() support to OD/ORC and upgrade them');
-        console.log('');
-        console.log('For a clean re-deploy, set this environment variable and run again:');
-        console.log(`  export ODRESERVE_ADDRESS="${reserveDeploy.result.contractAddress}"`);
-    }
-
-    console.log('\nSave these for bootstrap.ts:');
+    console.log('\nIMPORTANT: Run bootstrap.ts step 0 to call setReserve on OD and ORC.');
+    console.log('This links the tokens to the ODReserve contract.\n');
+    console.log('Save these for bootstrap.ts:');
     console.log(`  export OD_ADDRESS="${odDeploy.result.contractAddress}"`);
     console.log(`  export ORC_ADDRESS="${orcDeploy.result.contractAddress}"`);
     console.log(`  export ODRESERVE_ADDRESS="${reserveDeploy.result.contractAddress}"`);

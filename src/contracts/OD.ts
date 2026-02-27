@@ -8,45 +8,40 @@ import {
     OP20InitParameters,
     Revert,
     StoredAddress,
+    StoredBoolean,
 } from '@btc-vision/btc-runtime/runtime';
 
 /**
- * Storage pointer for the ODReserve address.
- * Must be declared at module level using Blockchain.nextPointer.
+ * Storage pointers — declared at module level using Blockchain.nextPointer.
  */
 const reserveAddressPointer: u16 = Blockchain.nextPointer;
+const reserveSetPointer: u16 = Blockchain.nextPointer;
 
 /**
  * OD — Orange Dollar stablecoin (OP-20 compliant).
  *
- * mint() and burn() are restricted to the ODReserve contract address
- * that is stored immutably at deployment time.
+ * mint() and burn() are restricted to the ODReserve contract address.
+ * The reserve address is set once after deployment via setReserve(),
+ * which only the contract deployer (owner) may call.
  */
 @final
 export class OD extends OP20 {
-    /**
-     * The ODReserve contract address — only this address may call mint/burn.
-     * Stored immutably in contract storage at deployment.
-     */
     private readonly reserveAddress: StoredAddress;
+    private readonly reserveSet: StoredBoolean;
 
     public constructor() {
         super();
 
         this.reserveAddress = new StoredAddress(reserveAddressPointer);
+        this.reserveSet = new StoredBoolean(reserveSetPointer, false);
     }
 
     /**
      * Called once when the contract is deployed.
-     * Reads the ODReserve address from calldata and stores it permanently.
-     * Then initialises OP-20 token parameters.
-     *
-     * @param calldata - First param: Address of the ODReserve contract.
+     * Initialises OP-20 token parameters. The reserve address is NOT set
+     * here — call setReserve() after deployment to complete setup.
      */
-    public override onDeployment(calldata: Calldata): void {
-        const reserve: Address = calldata.readAddress();
-        this.reserveAddress.value = reserve;
-
+    public override onDeployment(_calldata: Calldata): void {
         this.instantiate(
             new OP20InitParameters(
                 u256.Max, // no supply cap
@@ -61,6 +56,30 @@ export class OD extends OP20 {
 
     public override onUpdate(_calldata: Calldata): void {
         super.onUpdate(_calldata);
+    }
+
+    /**
+     * Sets the ODReserve address. Can only be called once, by the deployer.
+     * This breaks the circular deployment dependency: deploy OD, deploy ORC,
+     * deploy ODReserve, then call setReserve on OD and ORC.
+     */
+    @method({ name: 'reserve', type: ABIDataTypes.ADDRESS })
+    public setReserve(calldata: Calldata): BytesWriter {
+        if (Blockchain.tx.sender != Blockchain.contractDeployer) {
+            throw new Revert('OD: caller is not owner');
+        }
+
+        if (this.reserveSet.value) {
+            throw new Revert('OD: reserve already set');
+        }
+
+        const reserve: Address = calldata.readAddress();
+        this.reserveAddress.value = reserve;
+        this.reserveSet.value = true;
+
+        const response = new BytesWriter(1);
+        response.writeBoolean(true);
+        return response;
     }
 
     /**

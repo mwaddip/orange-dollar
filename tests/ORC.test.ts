@@ -25,6 +25,7 @@ const BURN_SELECTOR = 0xc5b162e8;
 const NAME_SELECTOR = 0x1581f81c;
 const SYMBOL_SELECTOR = 0x25967ca5;
 const DECIMALS_SELECTOR = 0xbb844440;
+const SET_RESERVE_SELECTOR = 0xb86a7d16;
 
 /**
  * A thin wrapper around the OP20 ContractRuntime that:
@@ -33,27 +34,31 @@ const DECIMALS_SELECTOR = 0xbb844440;
  * - exposes custom mint/burn helpers using the ORC-specific selectors
  */
 class ORCContract extends OP20 {
-    /** The reserve address baked into deployment calldata */
-    public readonly reserveAddress: import('@btc-vision/transaction').Address;
-
     constructor(
         address: import('@btc-vision/transaction').Address,
         deployer: import('@btc-vision/transaction').Address,
-        reserveAddress: import('@btc-vision/transaction').Address,
     ) {
-        // Encode deployment calldata: [reserveAddress (32 bytes)]
-        const deploymentCalldata = new BinaryWriter();
-        deploymentCalldata.writeAddress(reserveAddress);
-
         super({
             file: WASM_PATH,
             address,
             deployer,
             decimals: 8,
-            deploymentCalldata: deploymentCalldata.getBuffer(),
         });
+    }
 
-        this.reserveAddress = reserveAddress;
+    /** Calls setReserve(address) as the given caller. */
+    async setReserve(
+        caller: import('@btc-vision/transaction').Address,
+        reserve: import('@btc-vision/transaction').Address,
+    ) {
+        const calldata = new BinaryWriter();
+        calldata.writeSelector(SET_RESERVE_SELECTOR);
+        calldata.writeAddress(reserve);
+        return this.execute({
+            calldata: calldata.getBuffer(),
+            sender: caller,
+            txOrigin: caller,
+        });
     }
 
     /**
@@ -159,9 +164,13 @@ await opnet('ORC Token Contract', async (vm: OPNetUnit) => {
 
         const contractAddress = Blockchain.generateRandomAddress();
 
-        orc = new ORCContract(contractAddress, deployer, reserveAddress);
+        orc = new ORCContract(contractAddress, deployer);
         Blockchain.register(orc);
         await orc.init();
+
+        // Set reserve address (one-shot, owner-only)
+        const setRes = await orc.setReserve(deployer, reserveAddress);
+        Assert.equal(setRes.error, undefined, `setReserve failed: ${setRes.error?.message}`);
     });
 
     vm.afterEach(() => {
@@ -264,5 +273,25 @@ await opnet('ORC Token Contract', async (vm: OPNetUnit) => {
 
         const burnResponse = await orc.orcBurn(deployer, userAddress, mintAmount);
         Assert.notEqual(burnResponse.status, 0, 'Expected burn to revert for deployer');
+    });
+
+    // ─── setReserve Tests ────────────────────────────────────────────────────
+
+    await vm.it('setReserve reverts when called a second time', async () => {
+        const newReserve = Blockchain.generateRandomAddress();
+        const res = await orc.setReserve(deployer, newReserve);
+        Assert.notEqual(res.status, 0, 'Expected setReserve to revert on second call');
+    });
+
+    await vm.it('setReserve reverts for non-owner caller', async () => {
+        const freshAddress = Blockchain.generateRandomAddress();
+        const freshOrc = new ORCContract(freshAddress, deployer);
+        Blockchain.register(freshOrc);
+        await freshOrc.init();
+
+        const res = await freshOrc.setReserve(attackerAddress, reserveAddress);
+        Assert.notEqual(res.status, 0, 'Expected setReserve to revert for non-owner');
+
+        freshOrc.dispose();
     });
 });

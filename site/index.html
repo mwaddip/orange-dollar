@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orange Dollar — The Bitcoin-Native Stablecoin</title>
+<meta name="description" content="OD is an algorithmic stablecoin backed by WBTC on Bitcoin L1. Powered by Minimal Djed, secured by on-chain TWAP pricing.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & Variables ────────────────────────────────────────── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg:          #0A0A0A;
+  --bg-raised:   #111111;
+  --bg-surface:  #161616;
+  --bg-card:     #1A1A1A;
+  --orange:      #F7931A;
+  --orange-dim:  #F7931A99;
+  --orange-glow: #F7931A22;
+  --white:       #F5F7FA;
+  --white-dim:   #F5F7FA99;
+  --gray:        #6B6B6B;
+  --gray-light:  #8A8A8A;
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body:    'DM Sans', sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--white);
+  font-family: var(--font-body);
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; text-decoration: none; }
+
+/* ── Navigation ───────────────────────────────────────────────── */
+nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  padding: 1.25rem 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  transition: background 0.3s, backdrop-filter 0.3s;
+}
+
+nav.scrolled {
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(247, 147, 26, 0.08);
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.nav-logo svg { width: 36px; height: 36px; }
+
+.nav-logo span {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 2.5rem;
+}
+
+.nav-links a {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--gray-light);
+  transition: color 0.2s;
+}
+
+.nav-links a:hover { color: var(--white); }
+
+.btn {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.65rem 1.6rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.25s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-primary {
+  background: var(--orange);
+  color: #0A0A0A;
+}
+
+.btn-primary:hover {
+  background: #FFa333;
+  box-shadow: 0 0 30px var(--orange-glow);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--white);
+  border: 1px solid rgba(245, 247, 250, 0.15);
+}
+
+.btn-ghost:hover {
+  border-color: var(--orange-dim);
+  color: var(--orange);
+}
+
+/* ── Hero ─────────────────────────────────────────────────────── */
+.hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 8rem 2rem 6rem;
+  overflow: hidden;
+}
+
+/* Subtle radial glow behind the coin */
+.hero::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 700px;
+  height: 700px;
+  transform: translate(-50%, -55%);
+  background: radial-gradient(circle, var(--orange-glow) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Geometric grid texture */
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(247, 147, 26, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(247, 147, 26, 0.03) 1px, transparent 1px);
+  background-size: 80px 80px;
+  pointer-events: none;
+  mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 20%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 20%, transparent 100%);
+}
+
+.hero-coin {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  margin-bottom: 3rem;
+  z-index: 1;
+}
+
+.hero-coin svg { width: 100%; height: 100%; }
+
+/* The segmented ring rotates slowly */
+.hero-coin .ring {
+  animation: ring-spin 60s linear infinite;
+  transform-origin: 256px 256px;
+}
+
+@keyframes ring-spin {
+  from { transform: rotate(-90deg); }
+  to   { transform: rotate(270deg); }
+}
+
+/* Subtle pulse on the equilibrium node */
+.hero-coin .node {
+  animation: node-pulse 3s ease-in-out infinite;
+}
+
+@keyframes node-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.6; }
+}
+
+.hero h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin-bottom: 1.25rem;
+  position: relative;
+  z-index: 1;
+}
+
+.hero h1 .accent { color: var(--orange); }
+
+.hero p {
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  color: var(--gray-light);
+  max-width: 540px;
+  margin-bottom: 2.5rem;
+  position: relative;
+  z-index: 1;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 1rem;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Stats Ribbon ─────────────────────────────────────────────── */
+.stats {
+  background: var(--bg-raised);
+  border-top: 1px solid rgba(247, 147, 26, 0.08);
+  border-bottom: 1px solid rgba(247, 147, 26, 0.08);
+  padding: 2.5rem 2rem;
+  display: flex;
+  justify-content: center;
+  gap: 4rem;
+  flex-wrap: wrap;
+}
+
+.stat {
+  text-align: center;
+  min-width: 140px;
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--orange);
+  letter-spacing: -0.02em;
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--gray);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 0.25rem;
+}
+
+/* ── Section shared ───────────────────────────────────────────── */
+section { padding: 7rem 2rem; }
+
+.section-label {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--orange);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 1rem;
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 4vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  margin-bottom: 1.25rem;
+}
+
+.section-sub {
+  font-size: 1.05rem;
+  color: var(--gray-light);
+  max-width: 580px;
+}
+
+/* ── How It Works ─────────────────────────────────────────────── */
+.how-it-works {
+  background: var(--bg);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.how-it-works .section-header {
+  text-align: center;
+  margin-bottom: 4rem;
+}
+
+.how-it-works .section-sub {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+}
+
+.step {
+  background: var(--bg-surface);
+  border: 1px solid rgba(245, 247, 250, 0.06);
+  border-radius: 16px;
+  padding: 2.5rem 2rem;
+  transition: border-color 0.3s, transform 0.3s;
+}
+
+.step:hover {
+  border-color: rgba(247, 147, 26, 0.2);
+  transform: translateY(-4px);
+}
+
+.step-number {
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--orange);
+  background: rgba(247, 147, 26, 0.1);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+.step h3 {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  letter-spacing: -0.01em;
+}
+
+.step p {
+  font-size: 0.95rem;
+  color: var(--gray-light);
+  line-height: 1.65;
+}
+
+/* ── Dual Token ───────────────────────────────────────────────── */
+.dual-token {
+  background: var(--bg-raised);
+  border-top: 1px solid rgba(247, 147, 26, 0.06);
+}
+
+.dual-token-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.dual-token .section-header {
+  text-align: center;
+  margin-bottom: 4rem;
+}
+
+.dual-token .section-sub {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.tokens {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+.token-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(245, 247, 250, 0.06);
+  border-radius: 16px;
+  padding: 3rem 2.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.token-card::before {
+  content: '';
+  position: absolute;
+  top: -1px; left: -1px; right: -1px;
+  height: 3px;
+  border-radius: 16px 16px 0 0;
+}
+
+.token-card.od::before { background: var(--orange); }
+.token-card.orc::before { background: linear-gradient(90deg, var(--orange), #FFc833); }
+
+.token-badge {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  display: inline-block;
+  margin-bottom: 1.5rem;
+}
+
+.token-card.od .token-badge {
+  background: rgba(247, 147, 26, 0.12);
+  color: var(--orange);
+}
+
+.token-card.orc .token-badge {
+  background: rgba(255, 200, 51, 0.12);
+  color: #FFc833;
+}
+
+.token-card h3 {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  letter-spacing: -0.02em;
+}
+
+.token-card p {
+  font-size: 0.95rem;
+  color: var(--gray-light);
+  line-height: 1.7;
+  margin-bottom: 1.5rem;
+}
+
+.token-features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.token-features li {
+  font-size: 0.9rem;
+  color: var(--white-dim);
+  padding-left: 1.25rem;
+  position: relative;
+}
+
+.token-features li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.5em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--orange);
+}
+
+/* ── Built on Bitcoin ─────────────────────────────────────────── */
+.trust {
+  background: var(--bg);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.trust .section-header {
+  text-align: center;
+  margin-bottom: 4rem;
+}
+
+.trust .section-sub {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.trust-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+}
+
+.trust-item {
+  text-align: center;
+  padding: 2rem 1.5rem;
+}
+
+.trust-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 1.25rem;
+  border-radius: 12px;
+  background: rgba(247, 147, 26, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.trust-icon svg {
+  width: 22px;
+  height: 22px;
+  stroke: var(--orange);
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trust-item h4 {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.trust-item p {
+  font-size: 0.9rem;
+  color: var(--gray-light);
+  line-height: 1.6;
+}
+
+/* ── CTA ──────────────────────────────────────────────────────── */
+.cta {
+  background: var(--bg-raised);
+  border-top: 1px solid rgba(247, 147, 26, 0.06);
+  text-align: center;
+  padding: 6rem 2rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.cta::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 600px; height: 600px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, var(--orange-glow) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.cta .section-title {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 1rem;
+}
+
+.cta p {
+  position: relative;
+  z-index: 1;
+  font-size: 1.05rem;
+  color: var(--gray-light);
+  max-width: 480px;
+  margin: 0 auto 2.5rem;
+}
+
+.cta .btn { position: relative; z-index: 1; }
+
+/* ── Footer ───────────────────────────────────────────────────── */
+footer {
+  background: var(--bg);
+  border-top: 1px solid rgba(245, 247, 250, 0.06);
+  padding: 3rem 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.footer-left svg { width: 28px; height: 28px; }
+
+.footer-left span {
+  font-size: 0.85rem;
+  color: var(--gray);
+}
+
+.footer-links {
+  display: flex;
+  gap: 2rem;
+}
+
+.footer-links a {
+  font-size: 0.85rem;
+  color: var(--gray);
+  transition: color 0.2s;
+}
+
+.footer-links a:hover { color: var(--white); }
+
+/* ── Responsive ───────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  nav { padding: 1rem 1.25rem; }
+  .nav-links { display: none; }
+
+  .hero { padding: 7rem 1.5rem 4rem; }
+  .hero-coin { width: 140px; height: 140px; margin-bottom: 2rem; }
+  .hero-actions { flex-direction: column; width: 100%; max-width: 280px; }
+  .hero-actions .btn { justify-content: center; }
+
+  .stats { gap: 2rem; padding: 2rem 1.5rem; }
+  .stat-value { font-size: 1.4rem; }
+
+  section { padding: 4.5rem 1.5rem; }
+
+  .steps { grid-template-columns: 1fr; }
+  .tokens { grid-template-columns: 1fr; }
+  .trust-grid { grid-template-columns: 1fr; gap: 1rem; }
+
+  footer {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 2rem 1.5rem;
+  }
+}
+
+/* ── Entrance animations ──────────────────────────────────────── */
+.fade-up {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+
+.fade-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+</style>
+</head>
+
+<body>
+
+<!-- ── Navigation ──────────────────────────────────────────────── -->
+<nav id="nav">
+  <a href="#" class="nav-logo">
+    <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="256" cy="256" r="224" fill="#F7931A"/>
+      <circle cx="256" cy="256" r="170" fill="none" stroke="#F5F7FA" stroke-width="20" stroke-linecap="round" stroke-dasharray="103.5177 30" stroke-dashoffset="118.5177" transform="rotate(-90 256 256)"/>
+      <rect x="156" y="244" width="200" height="24" rx="12" fill="#F5F7FA"/>
+      <circle cx="256" cy="256" r="20" fill="#F5F7FA"/>
+    </svg>
+    <span>Orange Dollar</span>
+  </a>
+  <div class="nav-links">
+    <a href="#how-it-works">How It Works</a>
+    <a href="#tokens">Tokens</a>
+    <a href="https://github.com/mwaddip/orange-dollar" target="_blank" rel="noopener">GitHub</a>
+    <a href="#cta" class="btn btn-primary">Launch App</a>
+  </div>
+</nav>
+
+<!-- ── Hero ─────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-coin fade-up">
+    <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="256" cy="256" r="224" fill="#F7931A"/>
+      <circle class="ring" cx="256" cy="256" r="170" fill="none" stroke="#F5F7FA" stroke-width="20" stroke-linecap="round" stroke-dasharray="103.5177 30" stroke-dashoffset="118.5177"/>
+      <rect x="156" y="244" width="200" height="24" rx="12" fill="#F5F7FA"/>
+      <circle class="node" cx="256" cy="256" r="20" fill="#F5F7FA"/>
+    </svg>
+  </div>
+
+  <h1 class="fade-up">The Bitcoin-Native<br><span class="accent">Stablecoin</span></h1>
+
+  <p class="fade-up">
+    Algorithmic stability on Bitcoin L1. Backed by WBTC, priced by on-chain TWAP,
+    governed by the Minimal Djed protocol.
+  </p>
+
+  <div class="hero-actions fade-up">
+    <a href="#cta" class="btn btn-primary">Get Started</a>
+    <a href="#how-it-works" class="btn btn-ghost">Learn More</a>
+  </div>
+</section>
+
+<!-- ── Stats ────────────────────────────────────────────────────── -->
+<div class="stats">
+  <div class="stat fade-up">
+    <div class="stat-value">400%</div>
+    <div class="stat-label">Min Reserve Ratio</div>
+  </div>
+  <div class="stat fade-up">
+    <div class="stat-value">6 Blocks</div>
+    <div class="stat-label">TWAP Window</div>
+  </div>
+  <div class="stat fade-up">
+    <div class="stat-value">WBTC</div>
+    <div class="stat-label">Reserve Asset</div>
+  </div>
+  <div class="stat fade-up">
+    <div class="stat-value">OPNet</div>
+    <div class="stat-label">Bitcoin L1</div>
+  </div>
+</div>
+
+<!-- ── How It Works ─────────────────────────────────────────────── -->
+<section class="how-it-works" id="how-it-works">
+  <div class="section-header fade-up">
+    <div class="section-label">Protocol</div>
+    <h2 class="section-title">How It Works</h2>
+    <p class="section-sub">
+      Orange Dollar uses a dual-token reserve system. Deposit WBTC,
+      mint stablecoins or reserve coins, and redeem at any time.
+    </p>
+  </div>
+
+  <div class="steps">
+    <div class="step fade-up">
+      <div class="step-number">1</div>
+      <h3>Deposit WBTC</h3>
+      <p>
+        Send wrapped Bitcoin to the ODReserve contract. Your deposit
+        strengthens the reserve backing all OD in circulation.
+      </p>
+    </div>
+    <div class="step fade-up">
+      <div class="step-number">2</div>
+      <h3>Mint OD or ORC</h3>
+      <p>
+        Mint OD stablecoins pegged to $1, or mint ORC reserve coins
+        to capture equity growth and earn protocol fees.
+      </p>
+    </div>
+    <div class="step fade-up">
+      <div class="step-number">3</div>
+      <h3>Redeem Anytime</h3>
+      <p>
+        Burn OD or ORC to withdraw WBTC from the reserve.
+        No lockups, no intermediaries. Pure on-chain settlement.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Dual Token ───────────────────────────────────────────────── -->
+<section class="dual-token" id="tokens">
+  <div class="dual-token-inner">
+    <div class="section-header fade-up">
+      <div class="section-label">Tokens</div>
+      <h2 class="section-title">Two Tokens, One System</h2>
+      <p class="section-sub">
+        Stability and growth, working in tandem. OD maintains its peg
+        while ORC absorbs volatility and accrues value.
+      </p>
+    </div>
+
+    <div class="tokens">
+      <div class="token-card od fade-up">
+        <div class="token-badge">Stablecoin</div>
+        <h3>OD</h3>
+        <p>
+          Orange Dollar — pegged to $1 USD.  Mint by depositing WBTC,
+          redeem at the live TWAP price. Stability enforced by
+          reserve ratio bounds.
+        </p>
+        <ul class="token-features">
+          <li>$1 soft peg via Minimal Djed</li>
+          <li>Backed by WBTC on Bitcoin L1</li>
+          <li>Mint & burn with on-chain TWAP pricing</li>
+          <li>No governance, no admin keys on price</li>
+        </ul>
+      </div>
+
+      <div class="token-card orc fade-up">
+        <div class="token-badge">Reserve Coin</div>
+        <h3>ORC</h3>
+        <p>
+          Orange Reserve Coin — equity in the reserve pool.
+          ORC holders absorb WBTC volatility and earn the fees
+          generated by OD minting and burning.
+        </p>
+        <ul class="token-features">
+          <li>Equity-priced against reserve surplus</li>
+          <li>Earns 1.5% fee on every OD operation</li>
+          <li>Guards the 400%&ndash;800% reserve corridor</li>
+          <li>No dilution — fixed supply mechanics</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Trust / Built on Bitcoin ──────────────────────────────────── -->
+<section class="trust" id="trust">
+  <div class="section-header fade-up">
+    <div class="section-label">Security</div>
+    <h2 class="section-title">Built on Bitcoin</h2>
+    <p class="section-sub">
+      No bridges, no rollups. Orange Dollar is secured by Bitcoin itself,
+      deployed on OPNet — Bitcoin's native smart contract layer.
+    </p>
+  </div>
+
+  <div class="trust-grid">
+    <div class="trust-item fade-up">
+      <div class="trust-icon">
+        <!-- Shield icon -->
+        <svg viewBox="0 0 24 24"><path d="M12 2l7 4v5c0 5.25-3.5 10.74-7 12-3.5-1.26-7-6.75-7-12V6l7-4z"/></svg>
+      </div>
+      <h4>Minimal Djed</h4>
+      <p>Formally verified stablecoin model by IOHK. Mathematically proven reserve invariants.</p>
+    </div>
+    <div class="trust-item fade-up">
+      <div class="trust-icon">
+        <!-- Chart icon -->
+        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+      <h4>On-Chain TWAP</h4>
+      <p>Price feed from MotoSwap's cumulative accumulators. No oracles, no off-chain dependencies.</p>
+    </div>
+    <div class="trust-item fade-up">
+      <div class="trust-icon">
+        <!-- Lock icon -->
+        <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <h4>Bitcoin Settlement</h4>
+      <p>All state lives on Bitcoin L1 via OPNet. Tapscript-encoded calldata, not sidechains or bridges.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA ──────────────────────────────────────────────────────── -->
+<section class="cta" id="cta">
+  <h2 class="section-title fade-up">Ready to Stabilize<br>on <span style="color:var(--orange)">Bitcoin</span>?</h2>
+  <p class="fade-up">
+    Deposit WBTC, mint OD or ORC, and join the first algorithmic
+    stablecoin native to Bitcoin L1.
+  </p>
+  <a href="#" class="btn btn-primary fade-up">Launch App</a>
+</section>
+
+<!-- ── Footer ──────────────────────────────────────────────────── -->
+<footer>
+  <div class="footer-left">
+    <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="256" cy="256" r="224" fill="#F7931A"/>
+      <circle cx="256" cy="256" r="170" fill="none" stroke="#F5F7FA" stroke-width="20" stroke-linecap="round" stroke-dasharray="103.5177 30" stroke-dashoffset="118.5177" transform="rotate(-90 256 256)"/>
+      <rect x="156" y="244" width="200" height="24" rx="12" fill="#F5F7FA"/>
+      <circle cx="256" cy="256" r="20" fill="#F5F7FA"/>
+    </svg>
+    <span>Orange Dollar &middot; Bitcoin L1</span>
+  </div>
+  <div class="footer-links">
+    <a href="https://github.com/mwaddip/orange-dollar" target="_blank" rel="noopener">GitHub</a>
+    <a href="#">Docs</a>
+    <a href="https://opnet.org" target="_blank" rel="noopener">OPNet</a>
+  </div>
+</footer>
+
+<!-- ── Scripts ─────────────────────────────────────────────────── -->
+<script>
+// Nav background on scroll
+const nav = document.getElementById('nav');
+window.addEventListener('scroll', () => {
+  nav.classList.toggle('scrolled', window.scrollY > 40);
+}, { passive: true });
+
+// Intersection Observer for fade-up animations
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach((entry) => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+      observer.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.fade-up').forEach((el) => observer.observe(el));
+</script>
+
+</body>
+</html>

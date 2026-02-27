@@ -94,22 +94,24 @@ class MockWBTCContract extends OP20 {
 
 // ─── OD token wrapper ───────────────────────────────────────────────────────────
 
+const SET_RESERVE_SELECTOR = 0xb86a7d16;
+
 class ODTokenContract extends OP20 {
     constructor(
         address: import('@btc-vision/transaction').Address,
         deployer: import('@btc-vision/transaction').Address,
-        reserveAddress: import('@btc-vision/transaction').Address,
     ) {
-        const deploymentCalldata = new BinaryWriter();
-        deploymentCalldata.writeAddress(reserveAddress);
+        super({ file: OD_WASM_PATH, address, deployer, decimals: 8 });
+    }
 
-        super({
-            file: OD_WASM_PATH,
-            address,
-            deployer,
-            decimals: 8,
-            deploymentCalldata: deploymentCalldata.getBuffer(),
-        });
+    async setReserve(
+        caller: import('@btc-vision/transaction').Address,
+        reserve: import('@btc-vision/transaction').Address,
+    ) {
+        const calldata = new BinaryWriter();
+        calldata.writeSelector(SET_RESERVE_SELECTOR);
+        calldata.writeAddress(reserve);
+        return this.execute({ calldata: calldata.getBuffer(), sender: caller, txOrigin: caller });
     }
 }
 
@@ -119,18 +121,18 @@ class ORCTokenContract extends OP20 {
     constructor(
         address: import('@btc-vision/transaction').Address,
         deployer: import('@btc-vision/transaction').Address,
-        reserveAddress: import('@btc-vision/transaction').Address,
     ) {
-        const deploymentCalldata = new BinaryWriter();
-        deploymentCalldata.writeAddress(reserveAddress);
+        super({ file: ORC_WASM_PATH, address, deployer, decimals: 8 });
+    }
 
-        super({
-            file: ORC_WASM_PATH,
-            address,
-            deployer,
-            decimals: 8,
-            deploymentCalldata: deploymentCalldata.getBuffer(),
-        });
+    async setReserve(
+        caller: import('@btc-vision/transaction').Address,
+        reserve: import('@btc-vision/transaction').Address,
+    ) {
+        const calldata = new BinaryWriter();
+        calldata.writeSelector(SET_RESERVE_SELECTOR);
+        calldata.writeAddress(reserve);
+        return this.execute({ calldata: calldata.getBuffer(), sender: caller, txOrigin: caller });
     }
 }
 
@@ -298,8 +300,8 @@ function createFixtures(deployer: import('@btc-vision/transaction').Address): Te
     const factoryAddr    = Blockchain.generateRandomAddress();
 
     // OD and ORC are deployed with the reserve address as the authorized minter
-    const od = new ODTokenContract(odAddress, deployer, reserveAddress);
-    const orc = new ORCTokenContract(orcAddress, deployer, reserveAddress);
+    const od = new ODTokenContract(odAddress, deployer);
+    const orc = new ORCTokenContract(orcAddress, deployer);
     const wbtc = new MockWBTCContract(wbtcAddress, deployer);
     const pool = new MockPoolContract(poolAddress, deployer);
 
@@ -404,11 +406,13 @@ await opnet('ODReserve mintOD / burnOD', async (vm: OPNetUnit) => {
         await od.init();
         await orc.init();
 
-        // Force deployment of OP-20 contracts by calling a state-changing method.
+        // Set the reserve address on OD and ORC (one-shot, owner-only).
+        await od.setReserve(deployer, reserve.address);
+        await orc.setReserve(deployer, reserve.address);
+
+        // Force WBTC deployment commit.
         const dummyAddr = Blockchain.generateRandomAddress();
         await wbtc.mintRaw(dummyAddr, 0n);
-        await od.increaseAllowance(deployer, dummyAddr, 0n);
-        await orc.increaseAllowance(deployer, dummyAddr, 0n);
 
         // Reset block number for reproducible tests
         Blockchain.blockNumber = 100n;
