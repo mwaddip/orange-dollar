@@ -272,6 +272,30 @@ All values use `u256` with `1e8` scale. All arithmetic uses `SafeMath` -- no raw
 
 ---
 
+## dApp
+
+The `app/` directory contains a React frontend for interacting with the protocol.
+
+### Run Locally
+
+```bash
+cd app
+npm install
+npm run dev
+```
+
+Opens at http://localhost:5173. Requires [OPWallet](https://opwallet.org) browser extension (v1.8.2+).
+
+### Features
+
+- **Trade tab** -- Mint/burn OD and ORC, transfer tokens, manage approvals
+- **Dashboard tab** -- Reserve ratio, TWAP price, equity, supply stats, health bar
+- **Admin tab** -- Bootstrap wizard (auto-detects phase), protocol status, emergency controls
+- **Network switching** -- Testnet / Mainnet selector in the header
+- **OPWallet integration** -- Connect, sign transactions, view balances
+
+---
+
 ## Project Structure
 
 ```
@@ -295,8 +319,18 @@ tests/
 scripts/
   deploy.ts             # Contract deployment
   bootstrap.ts          # Post-deploy bootstrap sequence
+app/
+  src/
+    components/         # React UI components (Trade, Dashboard, Admin, etc.)
+    context/            # ProtocolContext, ToastContext
+    hooks/              # useContractCall
+    abi/                # Contract ABIs for frontend
+    config.ts           # Network configs (testnet, mainnet)
+    styles/             # CSS (dark theme matching landing page)
 docs/
   plans/                # Design document and implementation plan
+site/
+  index.html            # Landing page
 ```
 
 ---
