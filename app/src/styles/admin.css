@@ -1,0 +1,331 @@
+.admin {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+/* ---------- Warning banner ---------- */
+.admin-warning {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--orange-glow);
+  border: 1px solid var(--orange-dim);
+  border-radius: var(--radius-lg);
+  padding: 14px 20px;
+  margin-bottom: 24px;
+  font-size: 14px;
+  color: var(--orange);
+}
+
+.admin-warning-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+/* ---------- Live status card ---------- */
+.admin-live-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(46, 204, 113, 0.3);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.admin-live-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(46, 204, 113, 0.5);
+  flex-shrink: 0;
+}
+
+.admin-live-text {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--green);
+}
+
+/* ---------- Section titles ---------- */
+.admin-section-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 16px;
+  margin-top: 8px;
+}
+
+/* ---------- Bootstrap wizard ---------- */
+.admin-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+/* ---------- Step cards ---------- */
+.step-card {
+  background: var(--bg-card);
+  border: 1px solid #222;
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  border-left: 4px solid var(--gray);
+  transition: opacity 0.2s, border-color 0.2s;
+}
+
+.step-card.completed {
+  border-left-color: var(--green);
+}
+
+.step-card.current {
+  border-left-color: var(--orange);
+}
+
+.step-card.future {
+  border-left-color: var(--gray);
+  opacity: 0.5;
+}
+
+.step-card.external {
+  border-left-color: var(--gray);
+  border-left-style: dashed;
+}
+
+/* Step header */
+.step-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.step-number {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--gray);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.step-card.completed .step-number {
+  background: var(--green);
+}
+
+.step-card.current .step-number {
+  background: var(--orange);
+}
+
+.step-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--white);
+}
+
+.step-card.future .step-title {
+  color: var(--gray-light);
+}
+
+.step-status-badge {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 12px;
+}
+
+.step-status-badge.done {
+  background: rgba(46, 204, 113, 0.15);
+  color: var(--green);
+}
+
+.step-status-badge.active {
+  background: var(--orange-glow);
+  color: var(--orange);
+}
+
+.step-status-badge.pending {
+  background: rgba(107, 107, 107, 0.2);
+  color: var(--gray-light);
+}
+
+/* Step description */
+.step-description {
+  font-size: 13px;
+  color: var(--gray-light);
+  margin-left: 36px;
+  margin-bottom: 12px;
+}
+
+/* Step inputs + button */
+.step-controls {
+  margin-left: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.step-field label {
+  font-size: 12px;
+  color: var(--gray-light);
+}
+
+.step-field input {
+  width: 100%;
+  font-size: 14px;
+  padding: 8px 12px;
+}
+
+.step-execute-btn {
+  width: 100%;
+  padding: 10px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--orange);
+  color: #000;
+  transition: opacity 0.2s;
+}
+
+.step-execute-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.step-execute-btn:disabled {
+  background: var(--gray);
+  color: var(--bg-raised);
+  cursor: not-allowed;
+}
+
+/* Step status message */
+.step-status {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  text-align: center;
+}
+
+.step-status.simulating,
+.step-status.awaiting_approval,
+.step-status.broadcasting {
+  background: var(--orange-glow);
+  color: var(--orange);
+  border: 1px solid var(--orange-dim);
+}
+
+.step-status.confirmed {
+  background: rgba(46, 204, 113, 0.1);
+  color: var(--green);
+  border: 1px solid rgba(46, 204, 113, 0.3);
+}
+
+.step-status.error {
+  background: rgba(231, 76, 60, 0.1);
+  color: var(--red);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  word-break: break-word;
+  cursor: pointer;
+}
+
+/* ---------- Protocol status grid (reuses dashboard pattern) ---------- */
+.admin-detail-grid {
+  background: var(--bg-card);
+  border: 1px solid #222;
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.admin-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #1e1e1e;
+}
+
+.admin-detail-row:last-child {
+  border-bottom: none;
+}
+
+.admin-detail-label {
+  color: var(--gray-light);
+  font-size: 14px;
+}
+
+.admin-detail-value {
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: var(--white);
+}
+
+.admin-detail-value.truncate {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+/* ---------- Emergency placeholder ---------- */
+.admin-emergency-card {
+  background: var(--bg-card);
+  border: 1px solid #222;
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  text-align: center;
+  color: var(--gray-light);
+  font-size: 14px;
+}
+
+/* ---------- Loading / error ---------- */
+.admin-loading,
+.admin-error {
+  text-align: center;
+  padding: 64px 24px;
+  color: var(--gray-light);
+}
+
+.admin-error {
+  color: var(--red);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 640px) {
+  .admin {
+    padding: 20px 16px;
+  }
+
+  .step-controls {
+    margin-left: 0;
+  }
+
+  .step-description {
+    margin-left: 0;
+  }
+
+  .admin-detail-value.truncate {
+    max-width: 180px;
+  }
+}

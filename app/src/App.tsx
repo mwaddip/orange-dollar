@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
 import { Trade } from './components/Trade';
+import { Admin } from './components/Admin';
 import './styles/app.css';
 import './styles/header.css';
 
@@ -14,9 +15,7 @@ export function App() {
       <main className="main">
         {activeTab === 'Trade' && <Trade />}
         {activeTab === 'Dashboard' && <Dashboard />}
-        {activeTab === 'Admin' && (
-          <div style={{ padding: '32px 24px' }}>Admin (coming next)</div>
-        )}
+        {activeTab === 'Admin' && <Admin />}
       </main>
     </div>
   );
