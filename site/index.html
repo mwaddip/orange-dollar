@@ -7,25 +7,24 @@
 <meta name="description" content="OD is an algorithmic stablecoin backed by WBTC on Bitcoin L1. Powered by Minimal Djed, secured by on-chain TWAP pricing.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 /* ── Reset & Variables ────────────────────────────────────────── */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
-  --bg:          #0A0A0A;
-  --bg-raised:   #111111;
-  --bg-surface:  #161616;
-  --bg-card:     #1A1A1A;
+  --bg:          #0F1113;
+  --bg-raised:   #151719;
+  --bg-surface:  #1B1D20;
+  --bg-card:     #1B1D20;
   --orange:      #F7931A;
-  --orange-dim:  #F7931A99;
-  --orange-glow: #F7931A22;
-  --white:       #F5F7FA;
-  --white-dim:   #F5F7FA99;
+  --orange-hover: #E68212;
+  --orange-dim:  rgba(247, 147, 26, 0.12);
+  --white:       #EDEFF2;
+  --white-dim:   rgba(237, 239, 242, 0.6);
   --gray:        #6B6B6B;
-  --gray-light:  #8A8A8A;
-  --font-display: 'Space Grotesk', sans-serif;
-  --font-body:    'DM Sans', sans-serif;
+  --gray-light:  #AEB4BC;
+  --font:        'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 html { scroll-behavior: smooth; }
@@ -33,7 +32,7 @@ html { scroll-behavior: smooth; }
 body {
   background: var(--bg);
   color: var(--white);
-  font-family: var(--font-body);
+  font-family: var(--font);
   line-height: 1.6;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
@@ -51,14 +50,12 @@ nav {
   align-items: center;
   justify-content: space-between;
   background: transparent;
-  transition: background 0.3s, backdrop-filter 0.3s;
+  transition: background 0.2s ease-out;
 }
 
 nav.scrolled {
-  background: rgba(10, 10, 10, 0.85);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(247, 147, 26, 0.08);
+  background: rgba(15, 17, 19, 0.95);
+  border-bottom: 1px solid rgba(237, 239, 242, 0.06);
 }
 
 .nav-logo {
@@ -70,7 +67,7 @@ nav.scrolled {
 .nav-logo svg { width: 36px; height: 36px; }
 
 .nav-logo span {
-  font-family: var(--font-display);
+  font-family: var(--font);
   font-weight: 600;
   font-size: 1.15rem;
   letter-spacing: -0.02em;
@@ -86,20 +83,20 @@ nav.scrolled {
   font-size: 0.9rem;
   font-weight: 500;
   color: var(--gray-light);
-  transition: color 0.2s;
+  transition: color 0.15s ease-out;
 }
 
 .nav-links a:hover { color: var(--white); }
 
 .btn {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 0.9rem;
-  padding: 0.65rem 1.6rem;
+  font-family: var(--font);
+  font-weight: 500;
+  font-size: 15px;
+  padding: 12px 20px;
   border-radius: 8px;
   border: none;
   cursor: pointer;
-  transition: all 0.25s;
+  transition: background 0.15s ease-out, border-color 0.15s ease-out, color 0.15s ease-out;
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -107,28 +104,26 @@ nav.scrolled {
 
 .btn-primary {
   background: var(--orange);
-  color: #0A0A0A;
+  color: #FFFFFF;
 }
 
 .btn-primary:hover {
-  background: #FFa333;
-  box-shadow: 0 0 30px var(--orange-glow);
+  background: var(--orange-hover);
 }
 
 .btn-ghost {
   background: transparent;
   color: var(--white);
-  border: 1px solid rgba(245, 247, 250, 0.15);
+  border: 1px solid rgba(237, 239, 242, 0.15);
 }
 
 .btn-ghost:hover {
-  border-color: var(--orange-dim);
+  border-color: rgba(247, 147, 26, 0.3);
   color: var(--orange);
 }
 
 /* ── Hero ─────────────────────────────────────────────────────── */
 .hero {
-  position: relative;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -136,42 +131,12 @@ nav.scrolled {
   justify-content: center;
   text-align: center;
   padding: 8rem 2rem 6rem;
-  overflow: hidden;
-}
-
-/* Subtle radial glow behind the coin */
-.hero::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 700px;
-  height: 700px;
-  transform: translate(-50%, -55%);
-  background: radial-gradient(circle, var(--orange-glow) 0%, transparent 70%);
-  pointer-events: none;
-}
-
-/* Geometric grid texture */
-.hero::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(247, 147, 26, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(247, 147, 26, 0.03) 1px, transparent 1px);
-  background-size: 80px 80px;
-  pointer-events: none;
-  mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 20%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 20%, transparent 100%);
 }
 
 .hero-coin {
-  position: relative;
   width: 180px;
   height: 180px;
   margin-bottom: 3rem;
-  z-index: 1;
 }
 
 .hero-coin svg { width: 100%; height: 100%; }
@@ -187,25 +152,13 @@ nav.scrolled {
   to   { transform: rotate(270deg); }
 }
 
-/* Subtle pulse on the equilibrium node */
-.hero-coin .node {
-  animation: node-pulse 3s ease-in-out infinite;
-}
-
-@keyframes node-pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.6; }
-}
-
 .hero h1 {
-  font-family: var(--font-display);
+  font-family: var(--font);
   font-size: clamp(2.5rem, 6vw, 4.5rem);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.1;
   margin-bottom: 1.25rem;
-  position: relative;
-  z-index: 1;
 }
 
 .hero h1 .accent { color: var(--orange); }
@@ -215,22 +168,18 @@ nav.scrolled {
   color: var(--gray-light);
   max-width: 540px;
   margin-bottom: 2.5rem;
-  position: relative;
-  z-index: 1;
 }
 
 .hero-actions {
   display: flex;
   gap: 1rem;
-  position: relative;
-  z-index: 1;
 }
 
 /* ── Stats Ribbon ─────────────────────────────────────────────── */
 .stats {
   background: var(--bg-raised);
-  border-top: 1px solid rgba(247, 147, 26, 0.08);
-  border-bottom: 1px solid rgba(247, 147, 26, 0.08);
+  border-top: 1px solid rgba(237, 239, 242, 0.06);
+  border-bottom: 1px solid rgba(237, 239, 242, 0.06);
   padding: 2.5rem 2rem;
   display: flex;
   justify-content: center;
@@ -244,7 +193,7 @@ nav.scrolled {
 }
 
 .stat-value {
-  font-family: var(--font-display);
+  font-family: var(--font);
   font-size: 1.75rem;
   font-weight: 700;
   color: var(--orange);
@@ -263,7 +212,7 @@ nav.scrolled {
 section { padding: 7rem 2rem; }
 
 .section-label {
-  font-family: var(--font-display);
+  font-family: var(--font);
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--orange);
@@ -273,7 +222,7 @@ section { padding: 7rem 2rem; }
 }
 
 .section-title {
-  font-family: var(--font-display);
+  font-family: var(--font);
   font-size: clamp(1.75rem, 4vw, 2.75rem);
   font-weight: 700;
   letter-spacing: -0.025em;
@@ -312,10 +261,10 @@ section { padding: 7rem 2rem; }
 
 .step {
   background: var(--bg-surface);
-  border: 1px solid rgba(245, 247, 250, 0.06);
+  border: 1px solid rgba(237, 239, 242, 0.06);
   border-radius: 16px;
   padding: 2.5rem 2rem;
-  transition: border-color 0.3s, transform 0.3s;
+  transition: border-color 0.15s ease-out, transform 0.15s ease-out;
 }
 
 .step:hover {
@@ -324,7 +273,7 @@ section { padding: 7rem 2rem; }
 }
 
 .step-number {
-  font-family: var(--font-display);
+  font-family: var(--font);
   font-size: 0.75rem;
   font-weight: 700;
   color: var(--orange);
@@ -339,7 +288,7 @@ section { padding: 7rem 2rem; }
 }
 
 .step h3 {
-  font-family: var(--font-display);
+  font-family: var(--font);
   font-size: 1.25rem;
   font-weight: 600;
   margin-bottom: 0.75rem;
@@ -355,7 +304,7 @@ section { padding: 7rem 2rem; }
 /* ── Dual Token ───────────────────────────────────────────────── */
 .dual-token {
   background: var(--bg-raised);
-  border-top: 1px solid rgba(247, 147, 26, 0.06);
+  border-top: 1px solid rgba(237, 239, 242, 0.06);
 }
 
 .dual-token-inner {
@@ -381,7 +330,7 @@ section { padding: 7rem 2rem; }
 
 .token-card {
   background: var(--bg-card);
-  border: 1px solid rgba(245, 247, 250, 0.06);
+  border: 1px solid rgba(237, 239, 242, 0.06);
   border-radius: 16px;
   padding: 3rem 2.5rem;
   position: relative;
@@ -397,10 +346,10 @@ section { padding: 7rem 2rem; }
 }
 
 .token-card.od::before { background: var(--orange); }
-.token-card.orc::before { background: linear-gradient(90deg, var(--orange), #FFc833); }
+.token-card.orc::before { background: var(--orange); }
 
 .token-badge {
-  font-family: var(--font-display);
+  font-family: var(--font);
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -417,12 +366,12 @@ section { padding: 7rem 2rem; }
 }
 
 .token-card.orc .token-badge {
-  background: rgba(255, 200, 51, 0.12);
-  color: #FFc833;
+  background: rgba(247, 147, 26, 0.12);
+  color: var(--orange);
 }
 
 .token-card h3 {
-  font-family: var(--font-display);
+  font-family: var(--font);
   font-size: 1.6rem;
   font-weight: 700;
   margin-bottom: 0.75rem;
@@ -511,7 +460,7 @@ section { padding: 7rem 2rem; }
 }
 
 .trust-item h4 {
-  font-family: var(--font-display);
+  font-family: var(--font);
   font-size: 1.1rem;
   font-weight: 600;
   margin-bottom: 0.5rem;
@@ -526,44 +475,26 @@ section { padding: 7rem 2rem; }
 /* ── CTA ──────────────────────────────────────────────────────── */
 .cta {
   background: var(--bg-raised);
-  border-top: 1px solid rgba(247, 147, 26, 0.06);
+  border-top: 1px solid rgba(237, 239, 242, 0.06);
   text-align: center;
   padding: 6rem 2rem;
-  position: relative;
-  overflow: hidden;
-}
-
-.cta::before {
-  content: '';
-  position: absolute;
-  top: 50%; left: 50%;
-  width: 600px; height: 600px;
-  transform: translate(-50%, -50%);
-  background: radial-gradient(circle, var(--orange-glow) 0%, transparent 70%);
-  pointer-events: none;
 }
 
 .cta .section-title {
-  position: relative;
-  z-index: 1;
   margin-bottom: 1rem;
 }
 
 .cta p {
-  position: relative;
-  z-index: 1;
   font-size: 1.05rem;
   color: var(--gray-light);
   max-width: 480px;
   margin: 0 auto 2.5rem;
 }
 
-.cta .btn { position: relative; z-index: 1; }
-
 /* ── Footer ───────────────────────────────────────────────────── */
 footer {
   background: var(--bg);
-  border-top: 1px solid rgba(245, 247, 250, 0.06);
+  border-top: 1px solid rgba(237, 239, 242, 0.06);
   padding: 3rem 2.5rem;
   display: flex;
   align-items: center;
@@ -593,7 +524,7 @@ footer {
 .footer-links a {
   font-size: 0.85rem;
   color: var(--gray);
-  transition: color 0.2s;
+  transition: color 0.15s ease-out;
 }
 
 .footer-links a:hover { color: var(--white); }

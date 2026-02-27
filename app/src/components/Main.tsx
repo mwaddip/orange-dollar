@@ -58,6 +58,12 @@ function healthPct(ratio: bigint): number {
   return Math.round(Number(ratio - RATIO_MIN) / Number(RATIO_MAX - RATIO_MIN) * 100);
 }
 
+function healthLevel(pct: number): string {
+  if (pct < 33) return 'low';
+  if (pct < 66) return 'mid';
+  return 'high';
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -200,7 +206,7 @@ export function Main() {
             <span>800%</span>
           </div>
           <div className="health-track">
-            <div className="health-fill" style={{ width: `${healthPct(reserveRatio)}%` }} />
+            <div className={`health-fill ${healthLevel(healthPct(reserveRatio))}`} style={{ width: `${healthPct(reserveRatio)}%` }} />
           </div>
         </section>
       )}
@@ -211,16 +217,16 @@ export function Main() {
       <section className="action-section">
         <div className="action-panel">
           <div className="action-header">
-            <div className="pill-group">
-              <button className={`pill ${token === 'OD' ? 'active' : ''}`}
+            <div className="seg-group">
+              <button className={`seg-btn ${token === 'OD' ? 'active' : ''}`}
                 onClick={() => { setToken('OD'); setAmount(''); mintBurn.reset(); }}>OD</button>
-              <button className={`pill ${token === 'ORC' ? 'active' : ''}`}
+              <button className={`seg-btn ${token === 'ORC' ? 'active' : ''}`}
                 onClick={() => { setToken('ORC'); setAmount(''); mintBurn.reset(); }}>ORC</button>
             </div>
-            <div className="pill-group">
-              <button className={`pill ${action === 'Mint' ? 'active' : ''}`}
+            <div className="seg-group">
+              <button className={`seg-btn ${action === 'Mint' ? 'active' : ''}`}
                 onClick={() => { setAction('Mint'); setAmount(''); mintBurn.reset(); }}>Mint</button>
-              <button className={`pill ${action === 'Burn' ? 'active' : ''}`}
+              <button className={`seg-btn ${action === 'Burn' ? 'active' : ''}`}
                 onClick={() => { setAction('Burn'); setAmount(''); mintBurn.reset(); }}>Burn</button>
             </div>
           </div>

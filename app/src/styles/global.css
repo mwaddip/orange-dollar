@@ -1,19 +1,21 @@
 :root {
-  --bg:          #0A0A0A;
-  --bg-raised:   #111111;
-  --bg-surface:  #161616;
-  --bg-card:     #1A1A1A;
+  --bg:          #0F1113;
+  --bg-raised:   #151719;
+  --bg-surface:  #1B1D20;
+  --bg-card:     #1B1D20;
   --orange:      #F7931A;
-  --orange-dim:  #F7931A99;
-  --orange-glow: #F7931A22;
-  --white:       #F5F7FA;
-  --white-dim:   #F5F7FA99;
+  --orange-hover: #E68212;
+  --orange-dim:  rgba(247, 147, 26, 0.12);
+  --orange-tint: rgba(247, 147, 26, 0.08);
+  --white:       #EDEFF2;
+  --white-dim:   rgba(237, 239, 242, 0.6);
   --gray:        #6B6B6B;
-  --gray-light:  #8A8A8A;
+  --gray-light:  #AEB4BC;
   --red:         #E74C3C;
   --green:       #2ECC71;
-  --font-display: 'Space Grotesk', sans-serif;
-  --font-body:    'DM Sans', sans-serif;
+  --font:        'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-display: var(--font);
+  --font-body:    var(--font);
   --radius:      8px;
   --radius-lg:   12px;
 }
@@ -31,22 +33,23 @@ html, body, #root {
 }
 
 button {
-  font-family: var(--font-display);
+  font-family: var(--font);
+  font-weight: 500;
   cursor: pointer;
   border: none;
   outline: none;
 }
 
 input, select {
-  font-family: var(--font-body);
+  font-family: var(--font);
   background: var(--bg-raised);
   color: var(--white);
-  border: 1px solid var(--gray);
+  border: 1px solid rgba(237, 239, 242, 0.1);
   border-radius: var(--radius);
   padding: 10px 14px;
   font-size: 16px;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.15s ease-out;
 }
 
 input:focus, select:focus {

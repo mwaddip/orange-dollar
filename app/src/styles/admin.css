@@ -9,10 +9,10 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  background: var(--orange-glow);
-  border: 1px solid var(--orange-dim);
+  background: var(--orange-tint);
+  border: 1px solid rgba(247, 147, 26, 0.2);
   border-radius: var(--radius-lg);
-  padding: 14px 20px;
+  padding: 16px 24px;
   margin-bottom: 24px;
   font-size: 14px;
   color: var(--orange);
@@ -26,13 +26,13 @@
 /* ---------- Live status card ---------- */
 .admin-live-card {
   background: var(--bg-card);
-  border: 1px solid rgba(46, 204, 113, 0.3);
+  border: 1px solid rgba(46, 204, 113, 0.2);
   border-radius: var(--radius-lg);
   padding: 24px;
   margin-bottom: 24px;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
 }
 
 .admin-live-dot {
@@ -40,12 +40,10 @@
   height: 12px;
   border-radius: 50%;
   background: var(--green);
-  box-shadow: 0 0 8px rgba(46, 204, 113, 0.5);
   flex-shrink: 0;
 }
 
 .admin-live-text {
-  font-family: var(--font-display);
   font-size: 18px;
   font-weight: 600;
   color: var(--green);
@@ -53,12 +51,11 @@
 
 /* ---------- Section titles ---------- */
 .admin-section-title {
-  font-family: var(--font-display);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--gray-light);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.08em;
   margin-bottom: 16px;
   margin-top: 8px;
 }
@@ -74,11 +71,11 @@
 /* ---------- Step cards ---------- */
 .step-card {
   background: var(--bg-card);
-  border: 1px solid #222;
+  border: 1px solid rgba(237, 239, 242, 0.06);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 24px;
   border-left: 4px solid var(--gray);
-  transition: opacity 0.2s, border-color 0.2s;
+  transition: opacity 0.15s ease-out, border-color 0.15s ease-out;
 }
 
 .step-card.completed {
@@ -108,14 +105,13 @@
 }
 
 .step-number {
-  font-family: var(--font-display);
   font-size: 12px;
   font-weight: 700;
   color: var(--bg);
   background: var(--gray);
   width: 24px;
   height: 24px;
-  border-radius: 50%;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -131,7 +127,6 @@
 }
 
 .step-title {
-  font-family: var(--font-display);
   font-size: 15px;
   font-weight: 600;
   color: var(--white);
@@ -146,21 +141,21 @@
   font-size: 12px;
   font-weight: 600;
   padding: 2px 10px;
-  border-radius: 12px;
+  border-radius: 6px;
 }
 
 .step-status-badge.done {
-  background: rgba(46, 204, 113, 0.15);
+  background: rgba(46, 204, 113, 0.08);
   color: var(--green);
 }
 
 .step-status-badge.active {
-  background: var(--orange-glow);
+  background: var(--orange-tint);
   color: var(--orange);
 }
 
 .step-status-badge.pending {
-  background: rgba(107, 107, 107, 0.2);
+  background: rgba(107, 107, 107, 0.15);
   color: var(--gray-light);
 }
 
@@ -169,7 +164,7 @@
   font-size: 13px;
   color: var(--gray-light);
   margin-left: 36px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 /* Step inputs + button */
@@ -177,7 +172,7 @@
   margin-left: 36px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .step-field {
@@ -188,6 +183,7 @@
 
 .step-field label {
   font-size: 12px;
+  font-weight: 500;
   color: var(--gray-light);
 }
 
@@ -199,22 +195,22 @@
 
 .step-execute-btn {
   width: 100%;
-  padding: 10px;
+  padding: 12px;
   border-radius: var(--radius);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   background: var(--orange);
-  color: #000;
-  transition: opacity 0.2s;
+  color: #FFFFFF;
+  transition: background 0.15s ease-out;
 }
 
 .step-execute-btn:hover:not(:disabled) {
-  opacity: 0.9;
+  background: var(--orange-hover);
 }
 
 .step-execute-btn:disabled {
-  background: var(--gray);
-  color: var(--bg-raised);
+  background: var(--bg-surface);
+  color: var(--gray);
   cursor: not-allowed;
 }
 
@@ -230,31 +226,31 @@
 .step-status.simulating,
 .step-status.awaiting_approval,
 .step-status.broadcasting {
-  background: var(--orange-glow);
+  background: var(--orange-tint);
   color: var(--orange);
-  border: 1px solid var(--orange-dim);
+  border: 1px solid rgba(247, 147, 26, 0.2);
 }
 
 .step-status.confirmed {
-  background: rgba(46, 204, 113, 0.1);
+  background: rgba(46, 204, 113, 0.08);
   color: var(--green);
-  border: 1px solid rgba(46, 204, 113, 0.3);
+  border: 1px solid rgba(46, 204, 113, 0.2);
 }
 
 .step-status.error {
-  background: rgba(231, 76, 60, 0.1);
+  background: rgba(231, 76, 60, 0.08);
   color: var(--red);
-  border: 1px solid rgba(231, 76, 60, 0.3);
+  border: 1px solid rgba(231, 76, 60, 0.2);
   word-break: break-word;
   cursor: pointer;
 }
 
-/* ---------- Protocol status grid (reuses dashboard pattern) ---------- */
+/* ---------- Protocol status grid ---------- */
 .admin-detail-grid {
   background: var(--bg-card);
-  border: 1px solid #222;
+  border: 1px solid rgba(237, 239, 242, 0.06);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 24px;
   margin-bottom: 24px;
 }
 
@@ -262,7 +258,7 @@
   display: flex;
   justify-content: space-between;
   padding: 10px 0;
-  border-bottom: 1px solid #1e1e1e;
+  border-bottom: 1px solid rgba(237, 239, 242, 0.06);
 }
 
 .admin-detail-row:last-child {
@@ -272,10 +268,10 @@
 .admin-detail-label {
   color: var(--gray-light);
   font-size: 14px;
+  font-weight: 400;
 }
 
 .admin-detail-value {
-  font-family: var(--font-display);
   font-weight: 500;
   color: var(--white);
 }
@@ -291,7 +287,7 @@
 /* ---------- Emergency placeholder ---------- */
 .admin-emergency-card {
   background: var(--bg-card);
-  border: 1px solid #222;
+  border: 1px solid rgba(237, 239, 242, 0.06);
   border-radius: var(--radius-lg);
   padding: 24px;
   text-align: center;
@@ -314,7 +310,7 @@
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {
   .admin {
-    padding: 20px 16px;
+    padding: 24px 16px;
   }
 
   .step-controls {

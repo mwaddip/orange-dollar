@@ -5,7 +5,7 @@
   padding: 0 24px;
   height: 64px;
   background: var(--bg-raised);
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid rgba(237, 239, 242, 0.06);
 }
 
 .header-left {
@@ -15,11 +15,11 @@
 }
 
 .logo {
-  font-family: var(--font-display);
+  font-family: var(--font);
   font-size: 24px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--orange);
-  letter-spacing: -0.5px;
+  letter-spacing: -0.02em;
 }
 
 .header-right {
@@ -30,32 +30,32 @@
 
 .network-select {
   background: var(--bg-surface);
-  color: var(--white-dim);
-  border: 1px solid #333;
+  color: var(--gray-light);
+  border: 1px solid rgba(237, 239, 242, 0.1);
   border-radius: var(--radius);
-  padding: 6px 12px;
+  padding: 8px 12px;
   font-size: 13px;
-  font-family: var(--font-body);
+  font-weight: 500;
 }
 
 .wallet-btn {
   background: var(--orange);
-  color: var(--bg);
-  font-size: 14px;
-  font-weight: 600;
+  color: #FFFFFF;
+  font-size: 15px;
+  font-weight: 500;
   padding: 8px 20px;
   border-radius: var(--radius);
-  transition: opacity 0.15s;
+  transition: background 0.15s ease-out;
 }
 
 .wallet-btn:hover {
-  opacity: 0.85;
+  background: var(--orange-hover);
 }
 
 .wallet-btn.connected {
   background: var(--bg-surface);
   color: var(--orange);
-  border: 1px solid var(--orange-dim);
+  border: 1px solid rgba(247, 147, 26, 0.2);
 }
 
 @media (max-width: 640px) {
@@ -75,5 +75,4 @@
     width: 100%;
     justify-content: flex-end;
   }
-
 }
