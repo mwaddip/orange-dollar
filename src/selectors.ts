@@ -121,15 +121,11 @@ export const SEL_BALANCE_OF: u32 = 0x5b46f8f6;
  */
 export const SEL_TOTAL_SUPPLY: u32 = 0xa368022e;
 
-// ─── TODO markers ─────────────────────────────────────────────────────────────
-//
-// The following selectors are stubs that will be filled in as later tasks add
-// the corresponding methods to ODReserve:
-//
-//   mintOD(uint256)            -- Task 8
-//   burnOD(uint256)            -- Task 8
-//   premintOD(address,uint256) -- Task 9
-//
-// MotoSwap factory createPool(address,address) selector:
-//   TODO: confirm selector once we call it from reserve logic (Task 5/6)
-//   SHA256("createPool(address,address)") needs runtime cross-check.
+// ─── Ownership ───────────────────────────────────────────────────────────────
+
+/**
+ * transferOwnership(address)
+ * Transfers contract ownership to a new address (e.g. PERMAFROST threshold key).
+ * SHA256("transferOwnership(address)")[0..3] = 0xf1dcac99
+ */
+export const SEL_TRANSFER_OWNERSHIP: u32 = 0xf1dcac99;

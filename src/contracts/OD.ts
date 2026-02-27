@@ -16,6 +16,7 @@ import {
  */
 const reserveAddressPointer: u16 = Blockchain.nextPointer;
 const reserveSetPointer: u16 = Blockchain.nextPointer;
+const ownerPointer: u16 = Blockchain.nextPointer;
 
 /**
  * OD — Orange Dollar stablecoin (OP-20 compliant).
@@ -28,12 +29,14 @@ const reserveSetPointer: u16 = Blockchain.nextPointer;
 export class OD extends OP20 {
     private readonly reserveAddress: StoredAddress;
     private readonly reserveSet: StoredBoolean;
+    private readonly _owner: StoredAddress;
 
     public constructor() {
         super();
 
         this.reserveAddress = new StoredAddress(reserveAddressPointer);
         this.reserveSet = new StoredBoolean(reserveSetPointer, false);
+        this._owner = new StoredAddress(ownerPointer);
     }
 
     /**
@@ -52,6 +55,9 @@ export class OD extends OP20 {
             ),
             true, // skip deployer verification — reserve is the privileged role
         );
+
+        // Store deployer as owner
+        this._owner.value = Blockchain.tx.sender;
     }
 
     public override onUpdate(_calldata: Calldata): void {
@@ -65,7 +71,7 @@ export class OD extends OP20 {
      */
     @method({ name: 'reserve', type: ABIDataTypes.ADDRESS })
     public setReserve(calldata: Calldata): BytesWriter {
-        if (Blockchain.tx.sender != Blockchain.contractDeployer) {
+        if (Blockchain.tx.sender != this._owner.value) {
             throw new Revert('OD: caller is not owner');
         }
 
@@ -79,6 +85,27 @@ export class OD extends OP20 {
 
         const response = new BytesWriter(1);
         response.writeBoolean(true);
+        return response;
+    }
+
+    /**
+     * Transfers ownership to a new address (e.g. PERMAFROST threshold key).
+     * Can only be called by the current owner. Repeatable.
+     */
+    @method({ name: 'newOwner', type: ABIDataTypes.ADDRESS })
+    @emit('OwnershipTransferred')
+    public transferOwnership(calldata: Calldata): BytesWriter {
+        if (Blockchain.tx.sender != this._owner.value) {
+            throw new Revert('OD: caller is not owner');
+        }
+
+        const previousOwner: Address = this._owner.value;
+        const newOwner: Address = calldata.readAddress();
+        this._owner.value = newOwner;
+
+        const response = new BytesWriter(64);
+        response.writeAddress(previousOwner);
+        response.writeAddress(newOwner);
         return response;
     }
 

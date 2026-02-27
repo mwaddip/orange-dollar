@@ -26,6 +26,7 @@ const NAME_SELECTOR = 0x1581f81c;
 const SYMBOL_SELECTOR = 0x25967ca5;
 const DECIMALS_SELECTOR = 0xbb844440;
 const SET_RESERVE_SELECTOR = 0xb86a7d16;
+const TRANSFER_OWNERSHIP_SELECTOR = 0xf1dcac99;
 
 /**
  * A thin wrapper around the OP20 ContractRuntime that:
@@ -43,6 +44,21 @@ class ORCContract extends OP20 {
             address,
             deployer,
             decimals: 8,
+        });
+    }
+
+    /** Calls transferOwnership(address) as the given caller. */
+    async transferOwnership(
+        caller: import('@btc-vision/transaction').Address,
+        newOwner: import('@btc-vision/transaction').Address,
+    ) {
+        const calldata = new BinaryWriter();
+        calldata.writeSelector(TRANSFER_OWNERSHIP_SELECTOR);
+        calldata.writeAddress(newOwner);
+        return this.execute({
+            calldata: calldata.getBuffer(),
+            sender: caller,
+            txOrigin: caller,
         });
     }
 
@@ -291,6 +307,61 @@ await opnet('ORC Token Contract', async (vm: OPNetUnit) => {
 
         const res = await freshOrc.setReserve(attackerAddress, reserveAddress);
         Assert.notEqual(res.status, 0, 'Expected setReserve to revert for non-owner');
+
+        freshOrc.dispose();
+    });
+
+    // ─── transferOwnership Tests ──────────────────────────────────────────────
+
+    await vm.it('owner can transfer ownership', async () => {
+        const newOwner = Blockchain.generateRandomAddress();
+        const res = await orc.transferOwnership(deployer, newOwner);
+        Assert.equal(res.error, undefined, `transferOwnership failed: ${res.error?.message}`);
+    });
+
+    await vm.it('non-owner cannot transfer ownership', async () => {
+        const newOwner = Blockchain.generateRandomAddress();
+        const res = await orc.transferOwnership(attackerAddress, newOwner);
+        Assert.notEqual(res.status, 0, 'Expected revert for non-owner');
+    });
+
+    await vm.it('after transfer, old owner loses access', async () => {
+        const newOwner = Blockchain.generateRandomAddress();
+
+        const res = await orc.transferOwnership(deployer, newOwner);
+        Assert.equal(res.error, undefined, `transferOwnership failed: ${res.error?.message}`);
+
+        const res2 = await orc.transferOwnership(deployer, attackerAddress);
+        Assert.notEqual(res2.status, 0, 'Expected revert for old owner');
+    });
+
+    await vm.it('new owner can call transferOwnership (repeatable)', async () => {
+        const newOwner = Blockchain.generateRandomAddress();
+        const thirdOwner = Blockchain.generateRandomAddress();
+
+        const res1 = await orc.transferOwnership(deployer, newOwner);
+        Assert.equal(res1.error, undefined, `First transfer failed: ${res1.error?.message}`);
+
+        const res2 = await orc.transferOwnership(newOwner, thirdOwner);
+        Assert.equal(res2.error, undefined, `Second transfer failed: ${res2.error?.message}`);
+
+        const res3 = await orc.transferOwnership(thirdOwner, deployer);
+        Assert.equal(res3.error, undefined, `Third transfer failed: ${res3.error?.message}`);
+    });
+
+    await vm.it('after transfer, new owner can call setReserve on fresh contract', async () => {
+        const freshAddress = Blockchain.generateRandomAddress();
+        const freshOrc = new ORCContract(freshAddress, deployer);
+        Blockchain.register(freshOrc);
+        await freshOrc.init();
+
+        const newOwner = Blockchain.generateRandomAddress();
+
+        const res = await freshOrc.transferOwnership(deployer, newOwner);
+        Assert.equal(res.error, undefined, `transferOwnership failed: ${res.error?.message}`);
+
+        const res2 = await freshOrc.setReserve(newOwner, reserveAddress);
+        Assert.equal(res2.error, undefined, `setReserve by new owner failed: ${res2.error?.message}`);
 
         freshOrc.dispose();
     });

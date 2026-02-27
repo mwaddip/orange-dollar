@@ -173,6 +173,27 @@ export class ODReserve extends OP_NET {
         // Migration logic reserved for future upgrades.
     }
 
+    // ── Ownership ────────────────────────────────────────────────────────
+
+    /**
+     * Transfers ownership to a new address (e.g. PERMAFROST threshold key).
+     * Can only be called by the current owner. Repeatable.
+     */
+    @method({ name: 'newOwner', type: ABIDataTypes.ADDRESS })
+    @emit('OwnershipTransferred')
+    public transferOwnership(calldata: Calldata): BytesWriter {
+        this._onlyOwner();
+
+        const previousOwner: Address = this._owner.value;
+        const newOwner: Address = calldata.readAddress();
+        this._owner.value = newOwner;
+
+        const response = new BytesWriter(64);
+        response.writeAddress(previousOwner);
+        response.writeAddress(newOwner);
+        return response;
+    }
+
     // ── View methods ───────────────────────────────────────────────────────
 
     /**
