@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
 import { Trade } from './components/Trade';
+import './styles/app.css';
 import './styles/header.css';
 
 export function App() {
