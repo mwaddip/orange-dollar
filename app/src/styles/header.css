@@ -1,0 +1,84 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 64px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid #222;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.logo {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--orange);
+  letter-spacing: -0.5px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.tab {
+  background: none;
+  color: var(--gray-light);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  transition: all 0.15s;
+}
+
+.tab:hover {
+  color: var(--white);
+  background: var(--bg-surface);
+}
+
+.tab.active {
+  color: var(--orange);
+  background: var(--orange-glow);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.network-select {
+  background: var(--bg-surface);
+  color: var(--white-dim);
+  border: 1px solid #333;
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: var(--font-body);
+}
+
+.wallet-btn {
+  background: var(--orange);
+  color: var(--bg);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 20px;
+  border-radius: var(--radius);
+  transition: opacity 0.15s;
+}
+
+.wallet-btn:hover {
+  opacity: 0.85;
+}
+
+.wallet-btn.connected {
+  background: var(--bg-surface);
+  color: var(--orange);
+  border: 1px solid var(--orange-dim);
+}
