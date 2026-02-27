@@ -167,7 +167,7 @@ export function Main() {
     <div className="od-main">
       {/* ===== Stats ribbon ===== */}
       <section className="stats-ribbon">
-        <div className="stat">
+        <div className="stat grow">
           <span className="stat-label">Phase</span>
           <span className="stat-value phase-val">{loading ? '...' : phaseName(phase)}</span>
         </div>
@@ -175,11 +175,11 @@ export function Main() {
           <span className="stat-label">Reserve Ratio</span>
           <span className="stat-value">{loading ? '...' : formatPercent(reserveRatio)}</span>
         </div>
-        <div className="stat">
+        <div className="stat grow">
           <span className="stat-label">TWAP</span>
           <span className="stat-value">{loading ? '...' : formatUsd(twap)}</span>
         </div>
-        <div className="stat">
+        <div className="stat grow">
           <span className="stat-label">Equity</span>
           <span className="stat-value">{loading ? '...' : formatBtc(equity)}</span>
         </div>
@@ -187,11 +187,11 @@ export function Main() {
           <span className="stat-label">WBTC Reserve</span>
           <span className="stat-value">{loading ? '...' : formatU256(wbtcReserve, 8)}</span>
         </div>
-        <div className="stat">
+        <div className="stat grow">
           <span className="stat-label">OD Supply</span>
           <span className="stat-value">{loading ? '...' : formatU256(odSupply, 2)}</span>
         </div>
-        <div className="stat">
+        <div className="stat grow">
           <span className="stat-label">ORC Supply</span>
           <span className="stat-value">{loading ? '...' : formatU256(orcSupply, 2)}</span>
         </div>

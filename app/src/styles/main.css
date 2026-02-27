@@ -11,21 +11,25 @@
 .stats-ribbon {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 8px;
   margin-bottom: 24px;
 }
 
 .stat {
-  flex: 1 1 120px;
+  flex: 0 1 auto;
   background: var(--bg-card);
   border: 1px solid rgba(237, 239, 242, 0.06);
   border-radius: var(--radius);
-  padding: 12px 14px;
-  min-width: 0;
+  padding: 10px 14px;
+}
+
+.stat.grow {
+  flex: 1 1 0;
 }
 
 .stat .stat-label {
-  font-size: 11px;
+  display: block;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -34,12 +38,11 @@
 }
 
 .stat .stat-value {
+  display: block;
   font-size: 13px;
   font-weight: 500;
   color: var(--white);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .stat .phase-val {
@@ -321,12 +324,9 @@
     grid-template-columns: 1fr;
   }
 
-  .stats-ribbon {
-    gap: 8px;
-  }
-
-  .stat {
-    flex: 1 1 calc(50% - 4px);
+  .stat,
+  .stat.grow {
+    flex: 1 1 auto;
   }
 
   .action-header {
