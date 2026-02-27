@@ -1,21 +1,24 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Header } from './components/Header';
-import { Dashboard } from './components/Dashboard';
-import { Trade } from './components/Trade';
+import { Main } from './components/Main';
 import { Admin } from './components/Admin';
 import './styles/app.css';
 import './styles/header.css';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState('Trade');
+  const [isAdmin, setIsAdmin] = useState(window.location.hash === '#admin');
+
+  useEffect(() => {
+    const onHash = () => setIsAdmin(window.location.hash === '#admin');
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   return (
     <div className="app">
-      <Header activeTab={activeTab} onTabChange={setActiveTab} />
+      <Header />
       <main className="main">
-        {activeTab === 'Trade' && <Trade />}
-        {activeTab === 'Dashboard' && <Dashboard />}
-        {activeTab === 'Admin' && <Admin />}
+        {isAdmin ? <Admin /> : <Main />}
       </main>
     </div>
   );

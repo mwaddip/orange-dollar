@@ -1,0 +1,332 @@
+/* ===== Main unified view ===== */
+
+.od-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* ---------- Stats ribbon ---------- */
+
+.stats-ribbon {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stat {
+  flex: 1 1 120px;
+  background: var(--bg-card);
+  border: 1px solid #222;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+.stat .stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--gray-light);
+  margin-bottom: 4px;
+}
+
+.stat .stat-value {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stat .phase-val {
+  color: var(--orange);
+}
+
+/* ---------- Health bar ---------- */
+
+.health-section {
+  background: var(--bg-card);
+  border: 1px solid #222;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 24px;
+}
+
+.health-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--gray-light);
+  margin-bottom: 6px;
+}
+
+.health-track {
+  height: 6px;
+  background: var(--bg-raised);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.health-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--red), var(--orange), var(--green));
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+/* ---------- Error ---------- */
+
+.main-error {
+  text-align: center;
+  padding: 24px;
+  color: var(--red);
+  font-size: 14px;
+}
+
+/* ---------- Action section (mint/burn + balances) ---------- */
+
+.action-section {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 16px;
+  align-items: start;
+}
+
+.action-panel {
+  background: var(--bg-card);
+  border: 1px solid #222;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.action-header {
+  display: flex;
+  gap: 12px;
+  padding: 20px 24px 0;
+}
+
+.action-body {
+  padding: 20px 24px 24px;
+}
+
+/* ---------- Pill toggles ---------- */
+
+.pill-group {
+  display: flex;
+  background: var(--bg-raised);
+  border-radius: 20px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.pill {
+  flex: 1;
+  padding: 7px 20px;
+  border-radius: 18px;
+  font-size: 14px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--gray-light);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.pill.active {
+  background: var(--orange);
+  color: #000;
+}
+
+.pill:not(.active):hover {
+  color: var(--white);
+}
+
+/* ---------- Input ---------- */
+
+.input-group {
+  margin-bottom: 16px;
+}
+
+.input-group label {
+  display: block;
+  font-size: 13px;
+  color: var(--gray-light);
+  margin-bottom: 6px;
+}
+
+.input-wrap {
+  position: relative;
+}
+
+.input-wrap input {
+  width: 100%;
+  padding-right: 56px;
+}
+
+.max-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--orange-glow);
+  color: var(--orange);
+  border: 1px solid var(--orange-dim);
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.max-btn:hover {
+  background: var(--orange-dim);
+  color: #000;
+}
+
+/* ---------- Info rows ---------- */
+
+.info-rows {
+  margin-bottom: 20px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--gray-light);
+}
+
+.info-val {
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: var(--white);
+}
+
+/* ---------- Execute button ---------- */
+
+.execute-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: var(--radius);
+  font-size: 16px;
+  font-weight: 700;
+  background: var(--orange);
+  color: #000;
+  transition: opacity 0.15s;
+}
+
+.execute-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.execute-btn:disabled {
+  background: var(--gray);
+  color: var(--bg-raised);
+  cursor: not-allowed;
+}
+
+/* ---------- Status messages ---------- */
+
+.status-msg {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  text-align: center;
+}
+
+.status-msg.confirmed {
+  background: rgba(46, 204, 113, 0.1);
+  color: var(--green);
+  border: 1px solid rgba(46, 204, 113, 0.3);
+}
+
+.status-msg.error {
+  background: rgba(231, 76, 60, 0.1);
+  color: var(--red);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  cursor: pointer;
+  word-break: break-word;
+}
+
+/* ---------- Hint text ---------- */
+
+.hint {
+  text-align: center;
+  color: var(--gray-light);
+  font-size: 14px;
+  padding: 8px 0 16px;
+}
+
+/* ---------- Balances panel ---------- */
+
+.balances-panel {
+  background: var(--bg-card);
+  border: 1px solid #222;
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.panel-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 16px;
+}
+
+.bal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.bal-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #1e1e1e;
+  font-size: 14px;
+}
+
+.bal-row:last-child {
+  border-bottom: none;
+}
+
+.bal-row span:first-child {
+  color: var(--gray-light);
+  font-weight: 500;
+}
+
+.bal-row span:last-child {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--white);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 768px) {
+  .action-section {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-ribbon {
+    gap: 8px;
+  }
+
+  .stat {
+    flex: 1 1 calc(50% - 4px);
+  }
+
+  .action-header {
+    flex-direction: column;
+    gap: 8px;
+  }
+}

@@ -2,31 +2,13 @@ import { NETWORKS } from '../config';
 import { useProtocol } from '../context/ProtocolContext';
 import { WalletButton } from './WalletButton';
 
-interface HeaderProps {
-  activeTab: string;
-  onTabChange: (tab: string) => void;
-}
-
-const TABS = ['Trade', 'Dashboard', 'Admin'];
-
-export function Header({ activeTab, onTabChange }: HeaderProps) {
+export function Header() {
   const { networkConfig, setNetworkName } = useProtocol();
 
   return (
     <header className="header">
       <div className="header-left">
-        <span className="logo">OD</span>
-        <nav className="tabs">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              className={`tab ${activeTab === tab ? 'active' : ''}`}
-              onClick={() => onTabChange(tab)}
-            >
-              {tab}
-            </button>
-          ))}
-        </nav>
+        <a href="#" className="logo">OD</a>
       </div>
       <div className="header-right">
         <select
