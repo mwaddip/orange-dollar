@@ -1,0 +1,26 @@
+{
+  "name": "od-dapp",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "opnet": "^1.8.1-rc.15",
+    "@btc-vision/walletconnect": "latest",
+    "@btc-vision/bitcoin": "^6.5.6",
+    "@btc-vision/transaction": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.9.3",
+    "vite": "^6.2.0"
+  }
+}
