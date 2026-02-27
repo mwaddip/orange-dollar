@@ -307,6 +307,143 @@
   color: var(--red);
 }
 
+/* ---------- Threshold signing ---------- */
+.threshold-share-import,
+.threshold-sign {
+  background: var(--bg-card);
+  border: 1px solid rgba(237, 239, 242, 0.06);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.threshold-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-light);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 12px;
+}
+
+.threshold-hint {
+  font-size: 13px;
+  color: var(--gray-light);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.threshold-filename {
+  font-size: 12px;
+  color: var(--orange);
+}
+
+.threshold-blob-textarea {
+  width: 100%;
+  min-height: 64px;
+  font-size: 12px;
+  font-family: monospace;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid rgba(237, 239, 242, 0.1);
+  border-radius: var(--radius);
+  color: var(--white);
+  resize: vertical;
+}
+
+.threshold-blob-textarea:focus {
+  outline: none;
+  border-color: var(--orange);
+}
+
+.threshold-btn-row {
+  display: flex;
+  gap: 12px;
+}
+
+.threshold-btn-half {
+  flex: 1;
+}
+
+.threshold-btn-cancel {
+  background: var(--bg-surface);
+  color: var(--gray-light);
+}
+
+.threshold-btn-cancel:hover:not(:disabled) {
+  background: rgba(237, 239, 242, 0.1);
+}
+
+.threshold-collected {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.threshold-collected-chip {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: var(--orange-tint);
+  color: var(--orange);
+}
+
+.threshold-tx-detail {
+  margin-bottom: 20px;
+}
+
+.threshold-idle {
+  margin-top: 16px;
+}
+
+.threshold-complete {
+  margin-top: 16px;
+}
+
+.threshold-share-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.threshold-share-badge {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 14px;
+  border-radius: 8px;
+  background: var(--orange-tint);
+  color: var(--orange);
+}
+
+.threshold-clear-btn {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  color: var(--gray-light);
+  cursor: pointer;
+}
+
+.threshold-clear-btn:hover {
+  background: rgba(237, 239, 242, 0.1);
+}
+
+.threshold-mode-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--orange-tint);
+  border: 1px solid rgba(247, 147, 26, 0.2);
+  border-radius: var(--radius-lg);
+  padding: 16px 24px;
+  margin-bottom: 24px;
+  font-size: 14px;
+  color: var(--orange);
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {
   .admin {

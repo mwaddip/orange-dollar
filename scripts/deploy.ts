@@ -27,7 +27,11 @@
  *   GAS_SAT_FEE                -- Gas fee in satoshis (default: 100000)
  *
  * Usage:
- *   npx tsx scripts/deploy.ts
+ *   npx tsx scripts/deploy.ts                          # Deploy all three
+ *   npx tsx scripts/deploy.ts --reserve-only            # Deploy only ODReserve
+ *
+ * For --reserve-only, set OD_ADDRESS and ORC_ADDRESS env vars to previously
+ * deployed contract addresses.
  */
 
 import * as fs from 'fs';
@@ -91,6 +95,39 @@ function loadBytecode(filename: string): Uint8Array {
         process.exit(1);
     }
     return fs.readFileSync(filePath);
+}
+
+// ── Retry helper ────────────────────────────────────────────────────────────
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function resolveAddressWithRetry(
+    provider: JSONRpcProvider,
+    addressRaw: string,
+    label: string,
+    maxAttempts = 30,
+    delayMs = 10_000,
+): Promise<Address> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            const addr = await provider.getPublicKeyInfo(addressRaw, true);
+            console.log(`  ${label}: ${addr.toHex()} (resolved on attempt ${attempt})`);
+            return addr;
+        } catch {
+            if (attempt === maxAttempts) {
+                throw new Error(
+                    `Failed to resolve ${label} (${addressRaw}) after ${maxAttempts} attempts. ` +
+                    `The contract may not be indexed yet. Try running deploy again with ` +
+                    `SKIP_OD=1 SKIP_ORC=1 to deploy only ODReserve.`,
+                );
+            }
+            console.log(`  Waiting for ${label} to be indexed... (attempt ${attempt}/${maxAttempts}, retrying in ${delayMs / 1000}s)`);
+            await sleep(delayMs);
+        }
+    }
+    throw new Error('unreachable');
 }
 
 // ── Calldata builders ───────────────────────────────────────────────────────
@@ -208,16 +245,6 @@ async function main(): Promise<void> {
     console.log(`  WBTC:    ${wbtcAddr.toHex()}`);
     console.log(`  Factory: ${factoryAddr.toHex()}`);
 
-    // Load bytecode
-    const odBytecode = loadBytecode('OD.wasm');
-    const orcBytecode = loadBytecode('ORC.wasm');
-    const reserveBytecode = loadBytecode('ODReserve.wasm');
-
-    console.log(`\nBytecode sizes:`);
-    console.log(`  OD:        ${odBytecode.length} bytes`);
-    console.log(`  ORC:       ${orcBytecode.length} bytes`);
-    console.log(`  ODReserve: ${reserveBytecode.length} bytes`);
-
     // Fetch initial UTXOs
     let utxos = await provider.utxoManager.getUTXOs({
         address: wallet.p2tr,
@@ -231,6 +258,8 @@ async function main(): Promise<void> {
 
     console.log(`\nInitial UTXOs: ${utxos.length}`);
 
+    const reserveOnly = process.argv.includes('--reserve-only');
+
     // ── Deploy contracts ────────────────────────────────────────────────
 
     const deployParams: DeployParams = {
@@ -243,20 +272,48 @@ async function main(): Promise<void> {
         utxos,
     };
 
-    // 1. Deploy OD (no constructor calldata — reserve set via setReserve post-deploy)
-    const odDeploy = await deployContract(deployParams, odBytecode, new Uint8Array(0), 'OD (Orange Dollar)');
-    utxos = odDeploy.nextUtxos;
-    deployParams.utxos = utxos;
+    let odContractAddress: string;
+    let orcContractAddress: string;
 
-    // 2. Deploy ORC (no constructor calldata)
-    const orcDeploy = await deployContract(deployParams, orcBytecode, new Uint8Array(0), 'ORC (Orange Reserve Coin)');
-    utxos = orcDeploy.nextUtxos;
-    deployParams.utxos = utxos;
+    if (reserveOnly) {
+        // Use previously deployed OD/ORC addresses
+        odContractAddress = requiredEnv('OD_ADDRESS');
+        orcContractAddress = requiredEnv('ORC_ADDRESS');
+        console.log('\n--reserve-only mode: skipping OD/ORC deployment');
+        console.log(`  Using OD:  ${odContractAddress}`);
+        console.log(`  Using ORC: ${orcContractAddress}`);
+    } else {
+        // Load bytecode for OD/ORC
+        const odBytecode = loadBytecode('OD.wasm');
+        const orcBytecode = loadBytecode('ORC.wasm');
+        console.log(`\nBytecode sizes:`);
+        console.log(`  OD:        ${odBytecode.length} bytes`);
+        console.log(`  ORC:       ${orcBytecode.length} bytes`);
 
-    // 3. Deploy ODReserve — resolve just-deployed OD/ORC addresses for calldata
+        // 1. Deploy OD (no constructor calldata — reserve set via setReserve post-deploy)
+        const odDeploy = await deployContract(deployParams, odBytecode, new Uint8Array(0), 'OD (Orange Dollar)');
+        utxos = odDeploy.nextUtxos;
+        deployParams.utxos = utxos;
+
+        // 2. Deploy ORC (no constructor calldata)
+        const orcDeploy = await deployContract(deployParams, orcBytecode, new Uint8Array(0), 'ORC (Orange Reserve Coin)');
+        utxos = orcDeploy.nextUtxos;
+        deployParams.utxos = utxos;
+
+        odContractAddress = odDeploy.result.contractAddress;
+        orcContractAddress = orcDeploy.result.contractAddress;
+    }
+
+    // 3. Deploy ODReserve — resolve OD/ORC addresses for calldata
+    const reserveBytecode = loadBytecode('ODReserve.wasm');
+    console.log(`  ODReserve: ${reserveBytecode.length} bytes`);
+
     console.log('\nResolving OD/ORC addresses for ODReserve calldata...');
-    const odAddr = await provider.getPublicKeyInfo(odDeploy.result.contractAddress, true);
-    const orcAddr = await provider.getPublicKeyInfo(orcDeploy.result.contractAddress, true);
+    if (!reserveOnly) {
+        console.log('(Just-deployed contracts may take a few moments to be indexed)');
+    }
+    const odAddr = await resolveAddressWithRetry(provider, odContractAddress, 'OD');
+    const orcAddr = await resolveAddressWithRetry(provider, orcContractAddress, 'ORC');
 
     const reserveCalldata = buildReserveCalldata(odAddr, orcAddr, wbtcAddr, factoryAddr);
     const reserveDeploy = await deployContract(deployParams, reserveBytecode, reserveCalldata, 'ODReserve');
@@ -264,8 +321,8 @@ async function main(): Promise<void> {
     // ── Summary ─────────────────────────────────────────────────────────
 
     console.log('\n=== Deployment Complete ===');
-    console.log(`OD contract:        ${odDeploy.result.contractAddress}`);
-    console.log(`ORC contract:       ${orcDeploy.result.contractAddress}`);
+    console.log(`OD contract:        ${odContractAddress}`);
+    console.log(`ORC contract:       ${orcContractAddress}`);
     console.log(`ODReserve contract: ${reserveDeploy.result.contractAddress}`);
     console.log(`WBTC address:       ${wbtcAddressHex}`);
     console.log(`Factory address:    ${factoryAddressHex}`);
@@ -273,8 +330,8 @@ async function main(): Promise<void> {
     console.log('\nIMPORTANT: Run bootstrap.ts step 0 to call setReserve on OD and ORC.');
     console.log('This links the tokens to the ODReserve contract.\n');
     console.log('Save these for bootstrap.ts:');
-    console.log(`  export OD_ADDRESS="${odDeploy.result.contractAddress}"`);
-    console.log(`  export ORC_ADDRESS="${orcDeploy.result.contractAddress}"`);
+    console.log(`  export OD_ADDRESS="${odContractAddress}"`);
+    console.log(`  export ORC_ADDRESS="${orcContractAddress}"`);
     console.log(`  export ODRESERVE_ADDRESS="${reserveDeploy.result.contractAddress}"`);
 
     // Cleanup

@@ -1,0 +1,239 @@
+.ceremony {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 40px 20px;
+}
+
+.ceremony h1 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.ceremony .subtitle {
+  color: var(--white-dim);
+  font-size: 14px;
+  margin-bottom: 32px;
+}
+
+/* Step indicator */
+.steps {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 32px;
+}
+
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(237, 239, 242, 0.15);
+  transition: background 0.2s;
+}
+
+.step-dot.active {
+  background: var(--orange);
+}
+
+.step-dot.done {
+  background: var(--green);
+}
+
+/* Card */
+.card {
+  background: var(--bg-card);
+  border: 1px solid rgba(237, 239, 242, 0.06);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.card p {
+  color: var(--white-dim);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+/* Form row */
+.form-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.form-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-light);
+}
+
+.form-row input,
+.form-row select {
+  width: 100%;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: var(--radius);
+  font-size: 15px;
+  font-weight: 600;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.btn-primary {
+  background: var(--orange);
+  color: #000;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--orange-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--bg-raised);
+  color: var(--white);
+  border: 1px solid rgba(237, 239, 242, 0.1);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: rgba(237, 239, 242, 0.2);
+}
+
+.btn-full {
+  width: 100%;
+}
+
+/* Share cards grid */
+.shares-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.share-card {
+  background: var(--bg-raised);
+  border: 1px solid rgba(237, 239, 242, 0.06);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.share-card .party-label {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.share-card .party-status {
+  font-size: 13px;
+  color: var(--gray-light);
+}
+
+.share-card .party-status.downloaded {
+  color: var(--green);
+}
+
+/* Public key display */
+.pubkey-display {
+  background: var(--bg-raised);
+  border: 1px solid rgba(237, 239, 242, 0.06);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  word-break: break-all;
+  color: var(--orange);
+  margin-bottom: 16px;
+  user-select: all;
+}
+
+/* Password modal overlay */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--bg-surface);
+  border: 1px solid rgba(237, 239, 242, 0.1);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  width: 400px;
+  max-width: 90vw;
+}
+
+.modal h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.modal .modal-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+/* Warning box */
+.warning {
+  background: rgba(231, 76, 60, 0.08);
+  border: 1px solid rgba(231, 76, 60, 0.2);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--red);
+  margin-bottom: 16px;
+}
+
+/* Success box */
+.success-box {
+  background: rgba(46, 204, 113, 0.08);
+  border: 1px solid rgba(46, 204, 113, 0.2);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--green);
+  margin-bottom: 16px;
+}
+
+/* Spinner */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(237, 239, 242, 0.2);
+  border-top-color: var(--orange);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

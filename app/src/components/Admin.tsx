@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { JSONRpcProvider, getContract } from 'opnet';
 import type { IOP20Contract, CallResult, BaseContractProperties } from 'opnet';
-import { Address } from '@btc-vision/transaction';
+import type { Address } from '@btc-vision/transaction';
 import { useProtocol } from '../context/ProtocolContext';
 import { useContractCall } from '../hooks/useContractCall';
 import type { TxStatus } from '../hooks/useContractCall';
@@ -15,6 +15,7 @@ import {
   formatU256,
   phaseName,
 } from '../utils/format';
+import { ShareGate, ThresholdSign } from './ThresholdSign';
 import '../styles/admin.css';
 
 // ---------------------------------------------------------------------------
@@ -201,6 +202,15 @@ export function Admin() {
 
   const { addToast } = useToast();
 
+  // -- Threshold signing mode detection --
+  // If permafrostPublicKey is set in config, the contracts have (or will have)
+  // their ownership transferred to a threshold key. In that case, the admin
+  // page must use multi-party signing instead of the wallet directly.
+  const thresholdMode = !!networkConfig.permafrostPublicKey;
+
+  // -- Threshold signing state --
+  const [thresholdStep, setThresholdStep] = useState<StepDef | null>(null);
+
   // -- Per-step input values --
   const [stepInputs, setStepInputs] = useState<Record<string, string>>({});
 
@@ -218,11 +228,8 @@ export function Admin() {
     [networkConfig],
   );
 
-  // -- Sender address --
-  const senderAddress = useMemo(
-    () => (connectedAddress ? Address.fromString(connectedAddress) : undefined),
-    [connectedAddress],
-  );
+  // -- Sender address (Address object from wallet, not Address.fromString) --
+  const { walletAddr } = useProtocol();
 
   // -- Contract call hook --
   const contractCall = useContractCall({
@@ -237,7 +244,7 @@ export function Admin() {
   // -- Execute a bootstrap step --
   const executeStep = useCallback(
     async (step: StepDef) => {
-      if (!connectedAddress || !senderAddress) return;
+      if (!connectedAddress || !walletAddr) return;
 
       const { addresses } = networkConfig;
       contractCall.reset();
@@ -252,9 +259,10 @@ export function Admin() {
               OD_ORC_ABI,
               provider,
               networkConfig.network,
-              senderAddress,
+              walletAddr,
             );
-            return od.setReserve(Address.fromString(reserveAddr));
+            const resolvedAddr = await provider.getPublicKeyInfo(reserveAddr, true);
+            return od.setReserve(resolvedAddr);
           });
           break;
         }
@@ -268,9 +276,10 @@ export function Admin() {
               OD_ORC_ABI,
               provider,
               networkConfig.network,
-              senderAddress,
+              walletAddr,
             );
-            return orc.setReserve(Address.fromString(reserveAddr));
+            const resolvedAddr = await provider.getPublicKeyInfo(reserveAddr, true);
+            return orc.setReserve(resolvedAddr);
           });
           break;
         }
@@ -290,12 +299,10 @@ export function Admin() {
               OD_ORC_ABI,
               provider,
               networkConfig.network,
-              senderAddress,
+              walletAddr,
             );
-            return wbtc.increaseAllowance(
-              Address.fromString(addresses.reserve),
-              wbtcAmount,
-            );
+            const reserveAddress = await provider.getPublicKeyInfo(addresses.reserve, true);
+            return wbtc.increaseAllowance(reserveAddress, wbtcAmount);
           });
 
           if (contractCall.status === 'error') return;
@@ -307,7 +314,7 @@ export function Admin() {
               OD_RESERVE_ABI,
               provider,
               networkConfig.network,
-              senderAddress,
+              walletAddr,
             );
             return reserve.mintORC(wbtcAmount);
           });
@@ -325,7 +332,7 @@ export function Admin() {
               OD_RESERVE_ABI,
               provider,
               networkConfig.network,
-              senderAddress,
+              walletAddr,
             );
             return reserve.advancePhase(seedPrice);
           });
@@ -345,7 +352,7 @@ export function Admin() {
               OD_RESERVE_ABI,
               provider,
               networkConfig.network,
-              senderAddress,
+              walletAddr,
             );
             return reserve.premintOD(odAmount);
           });
@@ -369,9 +376,10 @@ export function Admin() {
               OD_RESERVE_ABI,
               provider,
               networkConfig.network,
-              senderAddress,
+              walletAddr,
             );
-            return reserve.initPool(Address.fromString(poolAddr));
+            const resolvedPool = await provider.getPublicKeyInfo(poolAddr, true);
+            return reserve.initPool(resolvedPool);
           });
           break;
         }
@@ -384,7 +392,7 @@ export function Admin() {
               OD_RESERVE_ABI,
               provider,
               networkConfig.network,
-              senderAddress,
+              walletAddr,
             );
             return reserve.updateTwapSnapshot();
           });
@@ -399,7 +407,7 @@ export function Admin() {
               OD_RESERVE_ABI,
               provider,
               networkConfig.network,
-              senderAddress,
+              walletAddr,
             );
             return reserve.advancePhase(0n);
           });
@@ -407,7 +415,7 @@ export function Admin() {
         }
       }
     },
-    [connectedAddress, senderAddress, networkConfig, provider, contractCall, stepInputs, addToast, refresh],
+    [connectedAddress, walletAddr, networkConfig, provider, contractCall, stepInputs, addToast, refresh],
   );
 
   // -- Currently executing step (to show status on the right card) --
@@ -419,6 +427,29 @@ export function Admin() {
       await executeStep(step);
     },
     [executeStep],
+  );
+
+  // -- Threshold signing handlers --
+  const handleThresholdPropose = useCallback(
+    (step: StepDef) => {
+      setThresholdStep(step);
+    },
+    [],
+  );
+
+  const handleThresholdCancel = useCallback(() => {
+    setThresholdStep(null);
+  }, []);
+
+  const handleSignatureReady = useCallback(
+    (_signature: Uint8Array) => {
+      // When the real ThresholdMLDSA ships, this will inject the combined
+      // signature into the transaction and broadcast. For now, just show
+      // a success toast.
+      addToast('Threshold signature combined! Broadcast not yet implemented (stub).', 'success');
+      setThresholdStep(null);
+    },
+    [addToast],
   );
 
   // ---------------------------------------------------------------------------
@@ -491,15 +522,25 @@ export function Admin() {
               </div>
             ))}
 
-            <button
-              className="step-execute-btn"
-              disabled={!connectedAddress || isBusy}
-              onClick={() => void handleExecuteStep(step)}
-            >
-              {isBusy && activeStepId === step.id
-                ? statusLabel(contractCall.status)
-                : `Execute Step ${step.id}`}
-            </button>
+            {thresholdMode ? (
+              <button
+                className="step-execute-btn"
+                disabled={!connectedAddress}
+                onClick={() => handleThresholdPropose(step)}
+              >
+                Propose Step {step.id}
+              </button>
+            ) : (
+              <button
+                className="step-execute-btn"
+                disabled={!connectedAddress || isBusy}
+                onClick={() => void handleExecuteStep(step)}
+              >
+                {isBusy && activeStepId === step.id
+                  ? statusLabel(contractCall.status)
+                  : `Execute Step ${step.id}`}
+              </button>
+            )}
 
             {renderStepStatus(step.id)}
           </div>
@@ -546,15 +587,55 @@ export function Admin() {
       {/* === Bootstrap warning + wizard (only pre-LIVE) === */}
       {!isLive && (
         <>
-          <div className="admin-warning">
-            <span className="admin-warning-icon">!</span>
-            <span>Admin functions require deployer wallet</span>
-          </div>
+          {thresholdMode ? (
+            <div className="threshold-mode-banner">
+              <span className="admin-warning-icon">!</span>
+              <span>Threshold signing mode — steps require {' '}
+                multi-party PERMAFROST signatures</span>
+            </div>
+          ) : (
+            <div className="admin-warning">
+              <span className="admin-warning-icon">!</span>
+              <span>Admin functions require deployer wallet</span>
+            </div>
+          )}
 
           <div className="admin-section-title">Bootstrap Wizard</div>
-          <div className="admin-wizard">
-            {STEPS.map((step) => renderStepCard(step))}
-          </div>
+
+          {thresholdMode ? (
+            <ShareGate>
+              {(share) => (
+                <>
+                  {/* Threshold signing overlay for a proposed step */}
+                  {thresholdStep && (
+                    <ThresholdSign
+                      stepTitle={thresholdStep.title}
+                      targetContract={networkConfig.addresses.reserve}
+                      txParams={Object.fromEntries(
+                        (thresholdStep.params ?? []).map((p) => [
+                          p.label,
+                          stepInputs[`${p.key}_${thresholdStep.id}`] || p.placeholder,
+                        ]),
+                      )}
+                      message={new Uint8Array(32)} // Placeholder — real impl hashes the tx
+                      share={share}
+                      onSignatureReady={handleSignatureReady}
+                      onCancel={handleThresholdCancel}
+                    />
+                  )}
+
+                  {/* Step cards */}
+                  <div className="admin-wizard">
+                    {STEPS.map((step) => renderStepCard(step))}
+                  </div>
+                </>
+              )}
+            </ShareGate>
+          ) : (
+            <div className="admin-wizard">
+              {STEPS.map((step) => renderStepCard(step))}
+            </div>
+          )}
         </>
       )}
 
