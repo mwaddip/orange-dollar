@@ -1,0 +1,274 @@
+.trade {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+/* ---------- Section headings ---------- */
+.trade-section-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+/* ---------- Card wrapper ---------- */
+.trade-card {
+  background: var(--bg-card);
+  border: 1px solid #222;
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+/* ---------- Pill toggles ---------- */
+.pill-group {
+  display: flex;
+  background: var(--bg-raised);
+  border-radius: 20px;
+  padding: 3px;
+  gap: 2px;
+  margin-bottom: 16px;
+}
+
+.pill-btn {
+  flex: 1;
+  padding: 8px 16px;
+  border-radius: 18px;
+  font-size: 14px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--gray-light);
+  transition: all 0.2s;
+}
+
+.pill-btn.active {
+  background: var(--orange);
+  color: #000;
+}
+
+.pill-btn:not(.active):hover {
+  color: var(--white);
+}
+
+/* ---------- Form rows ---------- */
+.trade-field {
+  margin-bottom: 16px;
+}
+
+.trade-field label {
+  display: block;
+  font-size: 13px;
+  color: var(--gray-light);
+  margin-bottom: 6px;
+}
+
+.trade-field input,
+.trade-field select {
+  width: 100%;
+}
+
+.trade-field .input-with-max {
+  position: relative;
+}
+
+.trade-field .input-with-max input {
+  padding-right: 56px;
+}
+
+.trade-field .max-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--orange-glow);
+  color: var(--orange);
+  border: 1px solid var(--orange-dim);
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.trade-field .max-btn:hover {
+  background: var(--orange-dim);
+  color: #000;
+}
+
+/* ---------- Info rows (estimated output, fee, TWAP) ---------- */
+.trade-info {
+  margin-bottom: 20px;
+}
+
+.trade-info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.trade-info-row .info-label {
+  color: var(--gray-light);
+}
+
+.trade-info-row .info-value {
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: var(--white);
+}
+
+/* ---------- Execute button ---------- */
+.trade-execute-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: var(--radius);
+  font-size: 16px;
+  font-weight: 700;
+  background: var(--orange);
+  color: #000;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+.trade-execute-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.trade-execute-btn:disabled {
+  background: var(--gray);
+  color: var(--bg-raised);
+  cursor: not-allowed;
+}
+
+/* ---------- Status / error messages ---------- */
+.trade-status {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  text-align: center;
+}
+
+.trade-status.simulating,
+.trade-status.awaiting_approval,
+.trade-status.broadcasting {
+  background: var(--orange-glow);
+  color: var(--orange);
+  border: 1px solid var(--orange-dim);
+}
+
+.trade-status.confirmed {
+  background: rgba(46, 204, 113, 0.1);
+  color: var(--green);
+  border: 1px solid rgba(46, 204, 113, 0.3);
+}
+
+.trade-status.error {
+  background: rgba(231, 76, 60, 0.1);
+  color: var(--red);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  word-break: break-word;
+}
+
+/* ---------- Balance section ---------- */
+.balance-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.balance-item {
+  text-align: center;
+}
+
+.balance-token {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-light);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.balance-amount {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--white);
+}
+
+/* ---------- Transfer / Approve section ---------- */
+.trade-subsection {
+  margin-bottom: 20px;
+}
+
+.trade-subsection:last-child {
+  margin-bottom: 0;
+}
+
+.trade-subsection-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--white);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #1e1e1e;
+}
+
+.trade-secondary-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--bg-surface);
+  color: var(--orange);
+  border: 1px solid var(--orange-dim);
+  transition: background 0.2s;
+}
+
+.trade-secondary-btn:hover:not(:disabled) {
+  background: var(--orange-glow);
+}
+
+.trade-secondary-btn:disabled {
+  color: var(--gray);
+  border-color: var(--gray);
+  cursor: not-allowed;
+}
+
+/* ---------- Not connected message ---------- */
+.trade-not-connected {
+  text-align: center;
+  color: var(--gray-light);
+  font-size: 14px;
+  padding: 8px 0 16px;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 480px) {
+  .trade {
+    padding: 20px 16px;
+  }
+
+  .balance-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .balance-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    text-align: left;
+  }
+
+  .balance-token {
+    margin-bottom: 0;
+  }
+}
