@@ -1,0 +1,58 @@
+:root {
+  --bg:          #0A0A0A;
+  --bg-raised:   #111111;
+  --bg-surface:  #161616;
+  --bg-card:     #1A1A1A;
+  --orange:      #F7931A;
+  --orange-dim:  #F7931A99;
+  --orange-glow: #F7931A22;
+  --white:       #F5F7FA;
+  --white-dim:   #F5F7FA99;
+  --gray:        #6B6B6B;
+  --gray-light:  #8A8A8A;
+  --red:         #E74C3C;
+  --green:       #2ECC71;
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body:    'DM Sans', sans-serif;
+  --radius:      8px;
+  --radius-lg:   12px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg);
+  color: var(--white);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: var(--font-display);
+  cursor: pointer;
+  border: none;
+  outline: none;
+}
+
+input, select {
+  font-family: var(--font-body);
+  background: var(--bg-raised);
+  color: var(--white);
+  border: 1px solid var(--gray);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+input:focus, select:focus {
+  border-color: var(--orange);
+}
+
+input::placeholder {
+  color: var(--gray);
+}
