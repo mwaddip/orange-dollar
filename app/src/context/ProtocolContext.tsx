@@ -11,7 +11,7 @@ import type { ReactNode } from 'react';
 import { JSONRpcProvider, getContract } from 'opnet';
 import type { IOP20Contract, CallResult, BaseContractProperties } from 'opnet';
 import type { ContractDecodedObjectResult } from 'opnet';
-import { Address } from '@btc-vision/transaction';
+import type { Address } from '@btc-vision/transaction';
 import { NETWORKS, DEFAULT_NETWORK } from '../config';
 import type { NetworkConfig } from '../config';
 import { OD_RESERVE_ABI } from '../abi/odReserve';
@@ -199,7 +199,9 @@ export function ProtocolProvider({ children }: { children: ReactNode }) {
           reserveContract.getTwapWindow(),
           odContract.totalSupply(),
           orcContract.totalSupply(),
-          wbtcContract.balanceOf(Address.fromString(addresses.reserve)),
+          provider.getPublicKeyInfo(addresses.reserve, true).then((addr) =>
+            wbtcContract.balanceOf(addr),
+          ),
         ]);
 
       const phase = prop<number>(phaseRes, 'phase');

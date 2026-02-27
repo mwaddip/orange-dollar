@@ -10,6 +10,7 @@ export function formatU256(value: bigint, decimals = 2): string {
 
 /** Format as a percentage (400_000_000 = 400.0%). */
 export function formatPercent(value: bigint, decimals = 1): string {
+  if (value > 100_000_000_000n) return '—'; // u256.MAX / div-by-zero guard
   return formatU256(value, decimals) + '%';
 }
 

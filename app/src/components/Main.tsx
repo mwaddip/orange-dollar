@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { JSONRpcProvider, getContract } from 'opnet';
 import type { IOP20Contract, CallResult, BaseContractProperties } from 'opnet';
-import { Address } from '@btc-vision/transaction';
+import type { Address } from '@btc-vision/transaction';
 import { useProtocol } from '../context/ProtocolContext';
 import { useContractCall } from '../hooks/useContractCall';
 import type { TxStatus } from '../hooks/useContractCall';
@@ -126,7 +126,8 @@ export function Main() {
         const wbtc = getContract<IOP20Contract>(
           addresses.wbtc, OD_ORC_ABI, provider, networkConfig.network, walletAddr,
         );
-        return wbtc.increaseAllowance(Address.fromString(addresses.reserve), parsed);
+        const reserveAddress = await provider.getPublicKeyInfo(addresses.reserve, true);
+        return wbtc.increaseAllowance(reserveAddress, parsed);
       });
       if (mintBurn.status === 'error') return;
       await mintBurn.execute(async () => {
@@ -141,7 +142,8 @@ export function Main() {
         const tok = getContract<IOP20Contract>(
           burnAddr, OD_ORC_ABI, provider, networkConfig.network, walletAddr,
         );
-        return tok.increaseAllowance(Address.fromString(addresses.reserve), parsed);
+        const reserveAddress = await provider.getPublicKeyInfo(addresses.reserve, true);
+        return tok.increaseAllowance(reserveAddress, parsed);
       });
       if (mintBurn.status === 'error') return;
       await mintBurn.execute(async () => {
