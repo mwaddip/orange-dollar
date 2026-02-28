@@ -33,10 +33,6 @@
 }
 
 /* Site title branding — "Dollar" in orange */
-.VPNavBarTitle .title {
-  display: none;
-}
-
 .od-site-title {
   font-size: 16px;
   font-weight: 600;

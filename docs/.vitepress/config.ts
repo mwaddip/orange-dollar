@@ -11,6 +11,7 @@ export default defineConfig({
   ],
   themeConfig: {
     logo: '/od-logo.svg',
+    siteTitle: false,
     nav: [
       { text: 'App', link: 'https://app.orangedollar.xyz' },
     ],
