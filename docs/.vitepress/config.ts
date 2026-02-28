@@ -48,6 +48,7 @@ export default defineConfig({
           { text: 'Fees', link: '/protocol/fees' },
           { text: 'Bootstrap Phases', link: '/protocol/bootstrap-phases' },
           { text: 'Bootstrap Guide', link: '/protocol/bootstrap-guide' },
+          { text: 'Bootstrap Economics', link: '/protocol/bootstrap-economics' },
           { text: 'Admin Functions', link: '/protocol/admin' },
         ],
       },
