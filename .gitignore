@@ -4,3 +4,4 @@ abis/
 *.tsbuildinfo
 dist/
 .tsbuildinfo
+.worktrees/
