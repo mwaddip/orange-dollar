@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@btc-vision/post-quantum": "file:../../../../../tmp/noble-post-quantum",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

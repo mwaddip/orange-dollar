@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ShareFile, DecryptedShare } from '../lib/share-crypto';
 import { decryptShareFile } from '../lib/share-crypto';
 import {
@@ -7,7 +7,8 @@ import {
   round2,
   round3,
   combine,
-  decodeBlob,
+  addBlob,
+  destroySession,
 } from '../lib/threshold';
 import type { SigningSession } from '../lib/threshold';
 
@@ -139,17 +140,50 @@ function TxDetail({ stepTitle, targetContract, params }: TxDetailProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Blob exchange UI (copy your blob, paste others' blobs)
+// Party tracker
+// ---------------------------------------------------------------------------
+
+interface PartyTrackerProps {
+  activePartyIds: number[];
+  collected: Map<number, unknown>;
+  selfId: number;
+}
+
+function PartyTracker({ activePartyIds, collected, selfId }: PartyTrackerProps) {
+  return (
+    <div className="threshold-collected" style={{ marginBottom: 12 }}>
+      {activePartyIds.map((id) => {
+        const has = collected.has(id);
+        const isSelf = id === selfId;
+        return (
+          <span
+            key={id}
+            className={`threshold-collected-chip${has ? '' : ' pending'}`}
+            style={!has ? { background: 'rgba(107,107,107,0.15)', color: 'var(--gray-light)' } : undefined}
+          >
+            Party {id}{isSelf ? ' (you)' : ''}{has ? ' ✓' : ''}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Blob exchange UI
 // ---------------------------------------------------------------------------
 
 interface BlobExchangeProps {
   roundNumber: number;
   myBlob: string;
   threshold: number;
-  collected: string[];
+  collected: Map<number, unknown>;
+  activePartyIds: number[];
+  selfId: number;
   onAddBlob: (blob: string) => void;
   onProceed: () => void;
   canProceed: boolean;
+  error: string;
 }
 
 function BlobExchange({
@@ -157,41 +191,50 @@ function BlobExchange({
   myBlob,
   threshold,
   collected,
+  activePartyIds,
+  selfId,
   onAddBlob,
   onProceed,
   canProceed,
+  error,
 }: BlobExchangeProps) {
   const [input, setInput] = useState('');
-  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const handleAdd = useCallback(() => {
     const trimmed = input.trim();
     if (!trimmed) return;
-
-    const decoded = decodeBlob(trimmed);
-    if (!decoded) {
-      setError('Invalid blob format');
-      return;
-    }
-    if (decoded.round !== roundNumber) {
-      setError(`Expected round ${roundNumber} blob, got round ${decoded.round}`);
-      return;
-    }
-
     onAddBlob(trimmed);
     setInput('');
-    setError('');
-  }, [input, roundNumber, onAddBlob]);
+  }, [input, onAddBlob]);
 
-  const needed = threshold - 1; // we already have our own
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(myBlob).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => { /* clipboard API may fail in some contexts */ });
+  }, [myBlob]);
+
+  const needed = threshold;
 
   return (
     <div className="threshold-blob-exchange">
       <div className="threshold-section-title">Round {roundNumber}</div>
 
+      <PartyTracker activePartyIds={activePartyIds} collected={collected} selfId={selfId} />
+
       {/* Our blob to copy */}
       <div className="step-field">
-        <label>Your blob (share with co-signers)</label>
+        <label>
+          Your blob (share with co-signers)
+          <button
+            className="threshold-clear-btn"
+            style={{ marginLeft: 8, fontSize: 11 }}
+            onClick={handleCopy}
+          >
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        </label>
         <textarea
           className="threshold-blob-textarea"
           readOnly
@@ -203,7 +246,7 @@ function BlobExchange({
       {/* Paste area */}
       <div className="step-field">
         <label>
-          Paste co-signer blob ({collected.length}/{needed} collected)
+          Paste co-signer blob ({collected.size}/{needed} collected)
         </label>
         <textarea
           className="threshold-blob-textarea"
@@ -231,20 +274,6 @@ function BlobExchange({
           Proceed to {roundNumber < 3 ? `Round ${roundNumber + 1}` : 'Combine'}
         </button>
       </div>
-
-      {/* Collected blobs summary */}
-      {collected.length > 0 && (
-        <div className="threshold-collected">
-          {collected.map((blob, i) => {
-            const info = decodeBlob(blob);
-            return (
-              <span key={i} className="threshold-collected-chip">
-                Party {info?.partyId ?? '?'}
-              </span>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
@@ -253,22 +282,15 @@ function BlobExchange({
 // Main ThresholdSign component
 // ---------------------------------------------------------------------------
 
-type SigningPhase = 'idle' | 'round1' | 'round2' | 'round3' | 'complete';
+type SigningPhase = 'idle' | 'round1' | 'round2' | 'round3' | 'complete' | 'failed';
 
 interface ThresholdSignProps {
-  /** The step being signed (for tx detail display). */
   stepTitle: string;
-  /** The target contract address. */
   targetContract: string;
-  /** Human-readable parameters for the step. */
   txParams: Record<string, string>;
-  /** The message (tx hash) to sign. */
   message: Uint8Array;
-  /** The decrypted share. */
   share: DecryptedShare;
-  /** Called when a combined signature is ready. */
   onSignatureReady: (signature: Uint8Array) => void;
-  /** Called to cancel. */
   onCancel: () => void;
 }
 
@@ -283,51 +305,129 @@ export function ThresholdSign({
 }: ThresholdSignProps) {
   const [phase, setPhase] = useState<SigningPhase>('idle');
   const [session, setSession] = useState<SigningSession | null>(null);
+  const [blobError, setBlobError] = useState('');
+  const [activePartyIds, setActivePartyIds] = useState<number[]>([]);
+  const [partyInput, setPartyInput] = useState('');
 
-  // Start round 1
+  // Cleanup on unmount
+  const sessionRef = useRef<SigningSession | null>(null);
+  useEffect(() => {
+    return () => {
+      if (sessionRef.current) {
+        destroySession(sessionRef.current);
+      }
+    };
+  }, []);
+
+  // Parse active party IDs from comma-separated input
+  const parsePartyIds = useCallback((): number[] | null => {
+    const parts = partyInput.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+    if (parts.length < share.threshold) return null;
+    // Ensure our own ID is included
+    if (!parts.includes(share.partyId)) {
+      parts.push(share.partyId);
+    }
+    return [...new Set(parts)].sort((a, b) => a - b);
+  }, [partyInput, share.partyId, share.threshold]);
+
+  // Start signing
   const startSigning = useCallback(() => {
-    const sess = createSession(message, share);
+    const ids = parsePartyIds();
+    if (!ids || ids.length < share.threshold) return;
+
+    setActivePartyIds(ids);
+    const sess = createSession(message, share, ids);
     round1(sess);
-    setSession(sess);
+    sessionRef.current = sess;
+    setSession({ ...sess });
     setPhase('round1');
-  }, [message, share]);
+  }, [message, share, parsePartyIds]);
 
-  // Collect blobs + advance rounds
-  const addBlobForRound = useCallback(
-    (roundNum: number, blob: string) => {
-      if (!session) return;
-      if (roundNum === 1) session.round1Blobs.push(blob);
-      else if (roundNum === 2) session.round2Blobs.push(blob);
-      else if (roundNum === 3) session.round3Blobs.push(blob);
-      // Force re-render by cloning
-      setSession({ ...session });
-    },
-    [session],
-  );
+  // Current round number for validation
+  const currentRound = phase === 'round1' ? 1 : phase === 'round2' ? 2 : phase === 'round3' ? 3 : undefined;
 
+  // Add blob from co-signer
+  const handleAddBlob = useCallback((blob: string) => {
+    if (!sessionRef.current) return;
+    setBlobError('');
+    const result = addBlob(sessionRef.current, blob, currentRound);
+    if (!result.ok) {
+      setBlobError(result.error ?? 'Invalid blob');
+      return;
+    }
+    setSession({ ...sessionRef.current });
+  }, [currentRound]);
+
+  // Advance to round 2
   const advanceToRound2 = useCallback(() => {
-    if (!session) return;
-    round2(session);
-    setSession({ ...session });
-    setPhase('round2');
-  }, [session]);
+    if (!sessionRef.current) return;
+    try {
+      round2(sessionRef.current);
+      setSession({ ...sessionRef.current });
+      setPhase('round2');
+      setBlobError('');
+    } catch (err) {
+      setBlobError(err instanceof Error ? err.message : 'Round 2 failed');
+    }
+  }, []);
 
+  // Advance to round 3
   const advanceToRound3 = useCallback(() => {
-    if (!session) return;
-    round3(session);
-    setSession({ ...session });
-    setPhase('round3');
-  }, [session]);
+    if (!sessionRef.current) return;
+    try {
+      round3(sessionRef.current);
+      setSession({ ...sessionRef.current });
+      setPhase('round3');
+      setBlobError('');
+    } catch (err) {
+      setBlobError(err instanceof Error ? err.message : 'Round 3 failed');
+    }
+  }, []);
 
+  // Combine
   const doCombine = useCallback(() => {
-    if (!session) return;
-    const sig = combine(session);
-    setSession({ ...session });
-    setPhase('complete');
-    onSignatureReady(sig);
-  }, [session, onSignatureReady]);
+    if (!sessionRef.current) return;
+    try {
+      const sig = combine(sessionRef.current);
+      if (sig) {
+        setSession({ ...sessionRef.current });
+        setPhase('complete');
+        onSignatureReady(sig);
+      } else {
+        setPhase('failed');
+      }
+    } catch (err) {
+      setBlobError(err instanceof Error ? err.message : 'Combine failed');
+      setPhase('failed');
+    }
+  }, [onSignatureReady]);
 
-  const needed = share.threshold - 1;
+  // Retry after failed combine
+  const handleRetry = useCallback(() => {
+    if (sessionRef.current) {
+      destroySession(sessionRef.current);
+    }
+    sessionRef.current = null;
+    setSession(null);
+    setPhase('idle');
+    setBlobError('');
+  }, []);
+
+  // Cancel with cleanup
+  const handleCancel = useCallback(() => {
+    if (sessionRef.current) {
+      destroySession(sessionRef.current);
+    }
+    sessionRef.current = null;
+    onCancel();
+  }, [onCancel]);
+
+  const needed = share.threshold;
+
+  // Build default party IDs string
+  const defaultPartyIds = Array.from({ length: share.parties }, (_, i) => i).join(', ');
+  const parsedIds = parsePartyIds();
+  const canStartSigning = !!parsedIds && parsedIds.length >= share.threshold;
 
   return (
     <div className="threshold-sign">
@@ -343,13 +443,26 @@ export function ThresholdSign({
             This step requires {share.threshold}-of-{share.parties} threshold
             signing. You are Party {share.partyId}.
           </p>
+          <div className="step-field" style={{ marginBottom: 12 }}>
+            <label>Active signer party IDs (comma-separated, need at least {share.threshold})</label>
+            <input
+              type="text"
+              placeholder={defaultPartyIds}
+              value={partyInput}
+              onChange={(e) => setPartyInput(e.target.value)}
+            />
+          </div>
           <div className="threshold-btn-row">
-            <button className="step-execute-btn threshold-btn-half" onClick={startSigning}>
+            <button
+              className="step-execute-btn threshold-btn-half"
+              onClick={startSigning}
+              disabled={!canStartSigning}
+            >
               Start Signing
             </button>
             <button
               className="step-execute-btn threshold-btn-half threshold-btn-cancel"
-              onClick={onCancel}
+              onClick={handleCancel}
             >
               Cancel
             </button>
@@ -361,11 +474,14 @@ export function ThresholdSign({
         <BlobExchange
           roundNumber={1}
           myBlob={session.myRound1Blob}
-          threshold={share.threshold}
-          collected={session.round1Blobs}
-          onAddBlob={(b) => addBlobForRound(1, b)}
+          threshold={needed}
+          collected={session.collectedRound1Hashes}
+          activePartyIds={activePartyIds}
+          selfId={share.partyId}
+          onAddBlob={handleAddBlob}
           onProceed={advanceToRound2}
-          canProceed={session.round1Blobs.length >= needed}
+          canProceed={session.collectedRound1Hashes.size >= needed}
+          error={blobError}
         />
       )}
 
@@ -373,11 +489,14 @@ export function ThresholdSign({
         <BlobExchange
           roundNumber={2}
           myBlob={session.myRound2Blob}
-          threshold={share.threshold}
-          collected={session.round2Blobs}
-          onAddBlob={(b) => addBlobForRound(2, b)}
+          threshold={needed}
+          collected={session.collectedRound2Commitments}
+          activePartyIds={activePartyIds}
+          selfId={share.partyId}
+          onAddBlob={handleAddBlob}
           onProceed={advanceToRound3}
-          canProceed={session.round2Blobs.length >= needed}
+          canProceed={session.collectedRound2Commitments.size >= needed}
+          error={blobError}
         />
       )}
 
@@ -385,11 +504,14 @@ export function ThresholdSign({
         <BlobExchange
           roundNumber={3}
           myBlob={session.myRound3Blob}
-          threshold={share.threshold}
-          collected={session.round3Blobs}
-          onAddBlob={(b) => addBlobForRound(3, b)}
+          threshold={needed}
+          collected={session.collectedRound3Responses}
+          activePartyIds={activePartyIds}
+          selfId={share.partyId}
+          onAddBlob={handleAddBlob}
           onProceed={doCombine}
-          canProceed={session.round3Blobs.length >= needed}
+          canProceed={session.collectedRound3Responses.size >= needed}
+          error={blobError}
         />
       )}
 
@@ -397,6 +519,22 @@ export function ThresholdSign({
         <div className="threshold-complete">
           <div className="step-status confirmed">
             Signature combined successfully! Ready to broadcast.
+          </div>
+        </div>
+      )}
+
+      {phase === 'failed' && (
+        <div className="threshold-complete">
+          <div className="step-status error" style={{ cursor: 'default' }}>
+            Signing attempt failed — this can happen due to randomness. Click Retry to start over.
+          </div>
+          <div className="threshold-btn-row" style={{ marginTop: 12 }}>
+            <button className="step-execute-btn threshold-btn-half" onClick={handleRetry}>
+              Retry
+            </button>
+            <button className="step-execute-btn threshold-btn-half threshold-btn-cancel" onClick={handleCancel}>
+              Cancel
+            </button>
           </div>
         </div>
       )}

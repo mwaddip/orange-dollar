@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { JSONRpcProvider, getContract } from 'opnet';
 import type { IOP20Contract, CallResult, BaseContractProperties } from 'opnet';
-import type { Address } from '@btc-vision/transaction';
+
 import { useProtocol } from '../context/ProtocolContext';
 import { useContractCall } from '../hooks/useContractCall';
 import type { TxStatus } from '../hooks/useContractCall';
