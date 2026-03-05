@@ -9,6 +9,10 @@ export interface NetworkConfig {
    *  the connected wallet is NOT the contract owner, the admin page enables
    *  multi-party threshold signing mode. */
   permafrostPublicKey?: string;
+  /** CABAL submission server URL. When set, threshold signatures are
+   *  auto-submitted to the server for execution. Falls back to manual
+   *  copy mode when absent or when the server is unreachable. */
+  cabalApiUrl?: string;
   addresses: {
     od: string;
     orc: string;
@@ -25,6 +29,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     label: 'Testnet',
     rpcUrl: 'https://testnet.opnet.org/api/v1/json-rpc',
     network: networks.opnetTestnet,
+    cabalApiUrl: '/api/cabal',
     addresses: {
       od: '0x32aa95fa34585c7f01d70e02a191548cc7af6ad1cd74c13e16e19c2dad88123b',
       orc: '0xfebf1d5da9cec9c9b37ed1e841df4470ac3c6608ab0d02af2a6557204a4ae190',
