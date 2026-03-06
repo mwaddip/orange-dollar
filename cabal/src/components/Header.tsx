@@ -17,15 +17,17 @@ export function Header() {
           <span className="logo-text">Orange <span className="logo-accent">Dollar</span></span>
         </a>
       </div>
-      <div className="header-right">
+      <div className="header-center">
+        <strong>Run offline?</strong>{' '}
         <a
           href="/permafrost-signer.html"
           download="permafrost-signer.html"
-          className="header-link"
-          title="Download the standalone signer page — verify the build, then run offline"
+          style={{ color: 'var(--orange)' }}
         >
-          Offline Signer
+          Download the standalone signer page
         </a>
+      </div>
+      <div className="header-right">
         <select
           className="network-select"
           value={networkConfig.name}
