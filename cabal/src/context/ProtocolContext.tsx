@@ -65,7 +65,6 @@ const INITIAL_STATE: ProtocolState = {
   error: null,
 };
 
-const POLL_INTERVAL_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // Context
@@ -261,48 +260,9 @@ export function ProtocolProvider({ networks, children }: ProtocolProviderProps) 
     }
   }, [networkConfig, walletAddr]);
 
-  // -- Initial fetch + 60 s polling (paused when hidden) --------------------
+  // -- Initial fetch (no auto-polling — use refresh() after actions) ---------
   useEffect(() => {
-    // Fetch immediately
     void fetchAll();
-
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-
-    function startPolling() {
-      if (intervalId) return;
-      intervalId = setInterval(() => {
-        void fetchAll();
-      }, POLL_INTERVAL_MS);
-    }
-
-    function stopPolling() {
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-    }
-
-    function handleVisibility() {
-      if (document.visibilityState === 'hidden') {
-        stopPolling();
-      } else {
-        // Refresh immediately when returning, then resume polling
-        void fetchAll();
-        startPolling();
-      }
-    }
-
-    // Only poll when the page is visible
-    if (document.visibilityState !== 'hidden') {
-      startPolling();
-    }
-
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      stopPolling();
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
   }, [fetchAll]);
 
   // -- isAdmin placeholder --------------------------------------------------
