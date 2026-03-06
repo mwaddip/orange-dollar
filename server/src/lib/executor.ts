@@ -41,6 +41,12 @@ const OD_ORC_ABI: BitcoinInterfaceAbi = [
     outputs: [{ name: 'ok', type: ABIDataTypes.BOOL }],
     type: BitcoinAbiTypes.Function,
   },
+  {
+    name: 'transferOwnership',
+    inputs: [{ name: 'newOwner', type: ABIDataTypes.ADDRESS }],
+    outputs: [{ name: 'ok', type: ABIDataTypes.BOOL }],
+    type: BitcoinAbiTypes.Function,
+  },
 ];
 
 const OD_RESERVE_ABI: BitcoinInterfaceAbi = [
@@ -74,6 +80,12 @@ const OD_RESERVE_ABI: BitcoinInterfaceAbi = [
     outputs: [{ name: 'ok', type: ABIDataTypes.BOOL }],
     type: BitcoinAbiTypes.Function,
   },
+  {
+    name: 'transferOwnership',
+    inputs: [{ name: 'newOwner', type: ABIDataTypes.ADDRESS }],
+    outputs: [{ name: 'ok', type: ABIDataTypes.BOOL }],
+    type: BitcoinAbiTypes.Function,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -82,6 +94,7 @@ const OD_RESERVE_ABI: BitcoinInterfaceAbi = [
 
 interface IODORCContract extends BaseContractProperties {
   setReserve(reserve: any): Promise<CallResult>;
+  transferOwnership(newOwner: any): Promise<CallResult>;
 }
 
 interface IODReserveContract extends BaseContractProperties {
@@ -90,6 +103,7 @@ interface IODReserveContract extends BaseContractProperties {
   premintOD(odAmount: bigint): Promise<CallResult>;
   initPool(poolAddress: any): Promise<CallResult>;
   updateTwapSnapshot(): Promise<CallResult>;
+  transferOwnership(newOwner: any): Promise<CallResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +178,7 @@ export async function executeStep(
     throw new Error('Signing wallet not configured — generate via /api/cabal/generate-wallet');
   }
 
-  const validSteps = [0, 1, 2, 3, 4, 6, 7, 8];
+  const validSteps = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13];
   if (!validSteps.includes(stepId)) {
     throw new Error(`Step ${stepId} is not executable via CABAL server`);
   }
@@ -217,6 +231,7 @@ async function runStep(
   txParams: TransactionParameters,
 ): Promise<string> {
   switch (stepId) {
+    // Step 0: setReserve on OD
     case 0: {
       const od = getContract<IODORCContract & IOP20Contract>(
         config.addresses.od, OD_ORC_ABI, provider, network as any, senderAddress,
@@ -230,6 +245,7 @@ async function runStep(
       return tx.transactionId;
     }
 
+    // Step 1: setReserve on ORC
     case 1: {
       const orc = getContract<IODORCContract & IOP20Contract>(
         config.addresses.orc, OD_ORC_ABI, provider, network as any, senderAddress,
@@ -243,30 +259,35 @@ async function runStep(
       return tx.transactionId;
     }
 
+    // Step 2: Approve WBTC for Reserve
     case 2: {
       const wbtcAmount = requireBigInt(params, 'wbtcAmount');
       if (wbtcAmount === 0n) throw new Error('wbtcAmount must be greater than 0');
-
       const wbtc = getContract<IOP20Contract>(
         config.addresses.wbtc, OP_20_ABI, provider, network as any, senderAddress,
       );
       const reserveAddr = await provider.getPublicKeyInfo(config.addresses.reserve, true);
-
-      const approveResult = await (wbtc as any).increaseAllowance(reserveAddr, wbtcAmount);
-      if (approveResult.revert)
-        throw new Error(`WBTC approve reverted: ${approveResult.revert}`);
-      await approveResult.sendTransaction(txParams);
-
-      const reserve = getContract<IODReserveContract>(
-        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
-      );
-      const mintResult = await (reserve as any).mintORC(wbtcAmount);
-      if (mintResult.revert) throw new Error(`mintORC reverted: ${mintResult.revert}`);
-      const tx = await mintResult.sendTransaction(txParams);
+      const result = await (wbtc as any).increaseAllowance(reserveAddr, wbtcAmount);
+      if (result.revert) throw new Error(`WBTC approve reverted: ${result.revert}`);
+      const tx = await result.sendTransaction(txParams);
       return tx.transactionId;
     }
 
+    // Step 3: mintORC (deposit WBTC)
     case 3: {
+      const wbtcAmount = requireBigInt(params, 'wbtcAmount');
+      if (wbtcAmount === 0n) throw new Error('wbtcAmount must be greater than 0');
+      const reserve = getContract<IODReserveContract>(
+        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
+      );
+      const result = await (reserve as any).mintORC(wbtcAmount);
+      if (result.revert) throw new Error(`mintORC reverted: ${result.revert}`);
+      const tx = await result.sendTransaction(txParams);
+      return tx.transactionId;
+    }
+
+    // Step 4: advancePhase (set seed price)
+    case 4: {
       const seedPrice = params['seedPrice'] ? requireBigInt(params, 'seedPrice') : 100000000n;
       const reserve = getContract<IODReserveContract>(
         config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
@@ -277,10 +298,10 @@ async function runStep(
       return tx.transactionId;
     }
 
-    case 4: {
+    // Step 5: premintOD
+    case 5: {
       const odAmount = requireBigInt(params, 'odAmount');
       if (odAmount === 0n) throw new Error('odAmount must be greater than 0');
-
       const reserve = getContract<IODReserveContract>(
         config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
       );
@@ -290,10 +311,40 @@ async function runStep(
       return tx.transactionId;
     }
 
+    // Step 6: Approve OD for MotoSwap Router
     case 6: {
+      const odAmount = requireBigInt(params, 'odAmount');
+      if (odAmount === 0n) throw new Error('odAmount must be greater than 0');
+      const od = getContract<IOP20Contract>(
+        config.addresses.od, OD_ORC_ABI, provider, network as any, senderAddress,
+      );
+      const resolvedRouter = await provider.getPublicKeyInfo(config.addresses.router, true);
+      const result = await (od as any).increaseAllowance(resolvedRouter, odAmount);
+      if (result.revert) throw new Error(`OD approve reverted: ${result.revert}`);
+      const tx = await result.sendTransaction(txParams);
+      return tx.transactionId;
+    }
+
+    // Step 7: Approve WBTC for MotoSwap Router
+    case 7: {
+      const wbtcAmount = requireBigInt(params, 'wbtcAmount');
+      if (wbtcAmount === 0n) throw new Error('wbtcAmount must be greater than 0');
+      const wbtc = getContract<IOP20Contract>(
+        config.addresses.wbtc, OP_20_ABI, provider, network as any, senderAddress,
+      );
+      const resolvedRouter = await provider.getPublicKeyInfo(config.addresses.router, true);
+      const result = await (wbtc as any).increaseAllowance(resolvedRouter, wbtcAmount);
+      if (result.revert) throw new Error(`WBTC approve reverted: ${result.revert}`);
+      const tx = await result.sendTransaction(txParams);
+      return tx.transactionId;
+    }
+
+    // Step 8: external (MotoSwap UI) — not executable via server
+
+    // Step 9: initPool
+    case 9: {
       const poolAddr = params['poolAddress'];
       if (!poolAddr) throw new Error('poolAddress is required');
-
       const reserve = getContract<IODReserveContract>(
         config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
       );
@@ -304,7 +355,8 @@ async function runStep(
       return tx.transactionId;
     }
 
-    case 7: {
+    // Step 10: updateTwapSnapshot
+    case 10: {
       const reserve = getContract<IODReserveContract>(
         config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
       );
@@ -314,12 +366,47 @@ async function runStep(
       return tx.transactionId;
     }
 
-    case 8: {
+    // Step 11: final advancePhase (PREMINT → LIVE)
+    case 11: {
       const reserve = getContract<IODReserveContract>(
         config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
       );
       const result = await (reserve as any).advancePhase(0n);
       if (result.revert) throw new Error(`advancePhase reverted: ${result.revert}`);
+      const tx = await result.sendTransaction(txParams);
+      return tx.transactionId;
+    }
+
+    // Step 12: Transfer OP-20 tokens
+    case 12: {
+      const contractAddr = params['contractAddr'];
+      const toAddress = params['toAddress'];
+      const amount = requireBigInt(params, 'amount');
+      if (!contractAddr) throw new Error('contractAddr is required');
+      if (!toAddress) throw new Error('toAddress is required');
+      if (amount === 0n) throw new Error('amount must be greater than 0');
+      const token = getContract<IOP20Contract>(
+        contractAddr, OD_ORC_ABI, provider, network as any, senderAddress,
+      );
+      const resolvedTo = await provider.getPublicKeyInfo(toAddress, true);
+      const result = await (token as any).transfer(resolvedTo, amount);
+      if (result.revert) throw new Error(`transfer reverted: ${result.revert}`);
+      const tx = await result.sendTransaction(txParams);
+      return tx.transactionId;
+    }
+
+    // Step 13: Transfer Ownership
+    case 13: {
+      const contractAddr = params['contractAddr'];
+      const newOwner = params['newOwner'];
+      if (!contractAddr) throw new Error('contractAddr is required');
+      if (!newOwner) throw new Error('newOwner is required');
+      const contract = getContract<IODORCContract>(
+        contractAddr, OD_ORC_ABI, provider, network as any, senderAddress,
+      );
+      const resolvedOwner = await provider.getPublicKeyInfo(newOwner, true);
+      const result = await (contract as any).transferOwnership(resolvedOwner);
+      if (result.revert) throw new Error(`transferOwnership reverted: ${result.revert}`);
       const tx = await result.sendTransaction(txParams);
       return tx.transactionId;
     }

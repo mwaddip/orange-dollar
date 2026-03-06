@@ -14,4 +14,10 @@ export const OD_ORC_ABI: BitcoinInterfaceAbi = [
     outputs: [{ name: 'ok', type: ABIDataTypes.BOOL }],
     type: BitcoinAbiTypes.Function,
   },
+  {
+    name: 'transferOwnership',
+    inputs: [{ name: 'newOwner', type: ABIDataTypes.ADDRESS }],
+    outputs: [{ name: 'ok', type: ABIDataTypes.BOOL }],
+    type: BitcoinAbiTypes.Function,
+  },
 ];

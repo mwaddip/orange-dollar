@@ -148,6 +148,18 @@ export const STEPS: StepDef[] = [
       { key: 'amount', label: 'Amount (e.g. 500 = 500 tokens)', placeholder: '500' },
     ],
   },
+  {
+    id: 13,
+    title: 'Transfer Ownership',
+    description: 'Transfer contract ownership to a new address (e.g. the PERMAFROST multisig).',
+    method: 'transferOwnership',
+    phases: [0, 1, 2],
+    contractParam: 'contractAddr',
+    params: [
+      { key: 'contractAddr', label: 'Contract Address', placeholder: '0x...' },
+      { key: 'newOwner', label: 'New Owner Address', placeholder: '0x...' },
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------

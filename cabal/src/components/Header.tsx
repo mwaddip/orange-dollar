@@ -18,6 +18,14 @@ export function Header() {
         </a>
       </div>
       <div className="header-right">
+        <a
+          href="/permafrost-signer.html"
+          download="permafrost-signer.html"
+          className="header-link"
+          title="Download the standalone signer page — verify the build, then run offline"
+        >
+          Offline Signer
+        </a>
         <select
           className="network-select"
           value={networkConfig.name}

@@ -39,6 +39,7 @@ interface IODReserveAdminContract extends BaseContractProperties {
 
 interface IOP20WithSetReserve extends IOP20Contract {
   setReserve(reserve: Address): Promise<CallResult>;
+  transferOwnership(newOwner: Address): Promise<CallResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -432,6 +433,20 @@ export function Admin() {
           });
           break;
         }
+        case 13: {
+          const contractAddr = stepInputs['contractAddr_13'] ?? '';
+          const newOwner = stepInputs['newOwner_13'] ?? '';
+          if (!contractAddr) { addToast('Enter the contract address', 'error'); return; }
+          if (!newOwner) { addToast('Enter the new owner address', 'error'); return; }
+          await contractCall.execute(async () => {
+            const contract = getContract<IOP20WithSetReserve>(
+              contractAddr, OD_ORC_ABI, provider, networkConfig.network, walletAddr,
+            );
+            const resolvedOwner = await provider.getPublicKeyInfo(newOwner, true);
+            return contract.transferOwnership(resolvedOwner);
+          });
+          break;
+        }
       }
     },
     [connectedAddress, walletAddr, networkConfig, provider, contractCall, stepInputs, addToast, refresh],
@@ -721,7 +736,7 @@ export function Admin() {
 
   return (
     <div className="admin">
-      {/* === Live status === */}
+      {/* === Full-width banners === */}
       {isLive && (
         <div className="admin-live-card">
           <div className="admin-live-dot" />
@@ -729,7 +744,6 @@ export function Admin() {
         </div>
       )}
 
-      {/* === Signature result === */}
       {sigResult && (
         <SignatureResult
           stepTitle={sigResult.stepTitle}
@@ -740,213 +754,199 @@ export function Admin() {
         />
       )}
 
-      {/* === Import external signature === */}
-      {thresholdMode && networkConfig.cabalApiUrl && !thresholdStep && !sigResult && (
-        <div className="admin-detail-grid" style={{ marginBottom: 24 }}>
-          <div className="admin-section-title">Import External Signature</div>
-          <p className="threshold-hint" style={{ marginTop: 0 }}>
-            Import a signature file produced by the offline PERMAFROST signer.
-          </p>
-
-          {!importedSig && (
-            <div className="step-field">
-              <label>Signature file (.json)</label>
-              <input type="file" accept=".json" onChange={handleImportFile} />
-            </div>
-          )}
-
-          {importError && (
-            <div className="step-status error" style={{ cursor: 'default' }}>{importError}</div>
-          )}
-
-          {importedSig && (
-            <>
-              <div className="admin-detail-row">
-                <span className="admin-detail-label">Step</span>
-                <span className="admin-detail-value">{importedSig.stepTitle}</span>
-              </div>
-              {Object.entries(importedSig.params).map(([key, val]) => (
-                <div className="admin-detail-row" key={key}>
-                  <span className="admin-detail-label">{key}</span>
-                  <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
-                    {val}
-                  </span>
-                </div>
-              ))}
-              <div className="admin-detail-row">
-                <span className="admin-detail-label">Message Hash</span>
-                <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
-                  {importedSig.messageHash}
-                </span>
-              </div>
-              <div className="admin-detail-row">
-                <span className="admin-detail-label">Signature</span>
-                <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
-                  {importedSig.signature.slice(0, 32)}...
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
-                <button
-                  className="step-execute-btn"
-                  disabled={submitting || !walletExists}
-                  onClick={() => void handleSubmitImported()}
-                >
-                  {submitting ? 'Submitting...' : !walletExists ? 'Generate wallet first' : 'Submit to CABAL Server'}
-                </button>
-                <button
-                  className="step-execute-btn"
-                  style={{ background: 'var(--bg-surface)', color: 'var(--gray-light)' }}
-                  onClick={() => setImportedSig(null)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* === Submitting to CABAL server === */}
       {submitting && (
-        <div className="step-status simulating" style={{ margin: '16px 0' }}>
+        <div className="step-status simulating" style={{ margin: '0 0 16px' }}>
           Submitting to CABAL server...
         </div>
       )}
 
-      {/* === Bootstrap warning + wizard (only pre-LIVE) === */}
-      {!isLive && (
-        <>
-          <div className="admin-warning">
-            <span className="admin-warning-icon">!</span>
-            <span>Admin functions require deployer wallet</span>
-          </div>
-
-          {thresholdMode && (
-            <div className="threshold-mode-banner">
-              <span className="admin-warning-icon">!</span>
-              <span>PERMAFROST enabled — steps can also be proposed for
-                multi-party threshold signing</span>
-            </div>
-          )}
-
-          {/* Wallet generation / status (threshold mode only) */}
-          {thresholdMode && networkConfig.cabalApiUrl && walletExists === false && (
-            <div className="admin-detail-grid" style={{ marginBottom: 24 }}>
-              <div className="admin-section-title">Generate Signing Wallet</div>
-              <div className="step-description" style={{ marginBottom: 12 }}>
-                The CABAL server needs a one-time ECDSA signing key.
-                This key signs Bitcoin transactions while the threshold ML-DSA key
-                provides the OPNet identity.
-              </div>
-              <div className="step-field">
-                <label>Passphrase</label>
-                <input
-                  type="password"
-                  placeholder="Enter server passphrase"
-                  value={walletPassphrase}
-                  onChange={(e) => setWalletPassphrase(e.target.value)}
-                  disabled={walletGenerating}
-                />
-              </div>
-              {walletError && (
-                <div className="step-status error" style={{ marginBottom: 8 }}>{walletError}</div>
+      {/* === Two-column layout === */}
+      <div className="admin-columns">
+        {/* --- Left column: Bootstrap wizard --- */}
+        <div className="admin-col-left">
+          {!isLive && (
+            <>
+              {/* Wallet generation (threshold mode only) */}
+              {thresholdMode && networkConfig.cabalApiUrl && walletExists === false && (
+                <div className="admin-detail-grid" style={{ marginBottom: 24 }}>
+                  <div className="admin-section-title">Generate Signing Wallet</div>
+                  <div className="step-description" style={{ marginBottom: 12, marginLeft: 0 }}>
+                    The CABAL server needs a one-time ECDSA signing key.
+                  </div>
+                  <div className="step-field">
+                    <label>Passphrase</label>
+                    <input
+                      type="password"
+                      placeholder="Enter server passphrase"
+                      value={walletPassphrase}
+                      onChange={(e) => setWalletPassphrase(e.target.value)}
+                      disabled={walletGenerating}
+                    />
+                  </div>
+                  {walletError && (
+                    <div className="step-status error" style={{ marginBottom: 8 }}>{walletError}</div>
+                  )}
+                  <button
+                    className="step-execute-btn"
+                    disabled={walletGenerating || !walletPassphrase}
+                    onClick={() => void handleGenerateWallet()}
+                  >
+                    {walletGenerating ? 'Generating...' : 'Generate Wallet'}
+                  </button>
+                </div>
               )}
-              <button
-                className="step-execute-btn"
-                disabled={walletGenerating || !walletPassphrase}
-                onClick={() => void handleGenerateWallet()}
-              >
-                {walletGenerating ? 'Generating...' : 'Generate Wallet'}
-              </button>
+
+              {thresholdMode && walletP2TR && (
+                <div className="admin-detail-row" style={{ marginBottom: 16 }}>
+                  <span className="admin-detail-label">Signing wallet</span>
+                  <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                    {walletP2TR}
+                  </span>
+                </div>
+              )}
+
+              <div className="admin-section-title">Bootstrap Wizard</div>
+
+              {thresholdStep && thresholdMessage && (
+                <ShareGate>
+                  {(share) => (
+                    <ThresholdSign
+                      stepTitle={thresholdStep.title}
+                      targetContract={getStepContract(thresholdStep, networkConfig.addresses, stepInputs)}
+                      txParams={Object.fromEntries(
+                        (thresholdStep.params ?? []).map((p) => [
+                          p.label,
+                          stepInputs[`${p.key}_${thresholdStep.id}`] || p.placeholder,
+                        ]),
+                      )}
+                      message={thresholdMessage}
+                      share={share}
+                      onSignatureReady={handleSignatureReady}
+                      onCancel={handleThresholdCancel}
+                    />
+                  )}
+                </ShareGate>
+              )}
+
+              <div className="admin-wizard">
+                {STEPS.map((step) => renderStepCard(step))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* --- Right column: Import signature + Protocol status --- */}
+        <div className="admin-col-right">
+          {/* Import External Signature */}
+          {thresholdMode && networkConfig.cabalApiUrl && !thresholdStep && !sigResult && (
+            <div className="admin-detail-grid">
+              <div className="admin-section-title" style={{ marginTop: 0 }}>Import External Signature</div>
+              <p className="threshold-hint" style={{ marginTop: 0 }}>
+                Import a signature file produced by the offline PERMAFROST signer.
+              </p>
+
+              {!importedSig && (
+                <div className="step-field">
+                  <label>Signature file (.json)</label>
+                  <input type="file" accept=".json" onChange={handleImportFile} />
+                </div>
+              )}
+
+              {importError && (
+                <div className="step-status error" style={{ cursor: 'default' }}>{importError}</div>
+              )}
+
+              {importedSig && (
+                <>
+                  <div className="admin-detail-row">
+                    <span className="admin-detail-label">Step</span>
+                    <span className="admin-detail-value">{importedSig.stepTitle}</span>
+                  </div>
+                  {Object.entries(importedSig.params).map(([key, val]) => (
+                    <div className="admin-detail-row" key={key}>
+                      <span className="admin-detail-label">{key}</span>
+                      <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                        {val}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="admin-detail-row">
+                    <span className="admin-detail-label">Message Hash</span>
+                    <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                      {importedSig.messageHash}
+                    </span>
+                  </div>
+                  <div className="admin-detail-row">
+                    <span className="admin-detail-label">Signature</span>
+                    <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                      {importedSig.signature.slice(0, 32)}...
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+                    <button
+                      className="step-execute-btn"
+                      disabled={submitting || !walletExists}
+                      onClick={() => void handleSubmitImported()}
+                    >
+                      {submitting ? 'Submitting...' : !walletExists ? 'Generate wallet first' : 'Submit to CABAL Server'}
+                    </button>
+                    <button
+                      className="step-execute-btn"
+                      style={{ background: 'var(--bg-surface)', color: 'var(--gray-light)' }}
+                      onClick={() => setImportedSig(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
-          {thresholdMode && walletP2TR && (
-            <div className="admin-detail-row" style={{ marginBottom: 16 }}>
-              <span className="admin-detail-label">Signing wallet</span>
-              <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
-                {walletP2TR}
+          {/* Protocol Status */}
+          <div className="admin-section-title">Protocol Status</div>
+          <div className="admin-detail-grid">
+            <div className="admin-detail-row">
+              <span className="admin-detail-label">Connected</span>
+              <span className="admin-detail-value truncate">
+                {connectedAddress ?? 'Not connected'}
               </span>
             </div>
-          )}
-
-          <div className="admin-section-title">Bootstrap Wizard</div>
-
-          {thresholdStep && thresholdMessage && (
-            <ShareGate>
-              {(share) => (
-                <ThresholdSign
-                  stepTitle={thresholdStep.title}
-                  targetContract={getStepContract(thresholdStep, networkConfig.addresses, stepInputs)}
-                  txParams={Object.fromEntries(
-                    (thresholdStep.params ?? []).map((p) => [
-                      p.label,
-                      stepInputs[`${p.key}_${thresholdStep.id}`] || p.placeholder,
-                    ]),
-                  )}
-                  message={thresholdMessage}
-                  share={share}
-                  onSignatureReady={handleSignatureReady}
-                  onCancel={handleThresholdCancel}
-                />
-              )}
-            </ShareGate>
-          )}
-
-          <div className="admin-wizard">
-            {STEPS.map((step) => renderStepCard(step))}
+            <div className="admin-detail-row">
+              <span className="admin-detail-label">Phase</span>
+              <span className="admin-detail-value">{phaseName(phase)}</span>
+            </div>
+            <div className="admin-detail-row">
+              <span className="admin-detail-label">Reserve Ratio</span>
+              <span className="admin-detail-value">{formatPercent(reserveRatio)}</span>
+            </div>
+            <div className="admin-detail-row">
+              <span className="admin-detail-label">Equity</span>
+              <span className="admin-detail-value">{formatBtc(equity)}</span>
+            </div>
+            <div className="admin-detail-row">
+              <span className="admin-detail-label">TWAP</span>
+              <span className="admin-detail-value">{formatUsd(twap)}</span>
+            </div>
+            <div className="admin-detail-row">
+              <span className="admin-detail-label">TWAP Window</span>
+              <span className="admin-detail-value">{twapWindow.toString()} blocks</span>
+            </div>
+            <div className="admin-detail-row">
+              <span className="admin-detail-label">OD Supply</span>
+              <span className="admin-detail-value">{formatU256(odSupply)}</span>
+            </div>
+            <div className="admin-detail-row">
+              <span className="admin-detail-label">ORC Supply</span>
+              <span className="admin-detail-value">{formatU256(orcSupply)}</span>
+            </div>
+            <div className="admin-detail-row">
+              <span className="admin-detail-label">WBTC Reserve</span>
+              <span className="admin-detail-value">{formatBtc(wbtcReserve)}</span>
+            </div>
           </div>
-        </>
-      )}
-
-      {/* === Protocol Status (always visible) === */}
-      <div className="admin-section-title">Protocol Status</div>
-      <div className="admin-detail-grid">
-        <div className="admin-detail-row">
-          <span className="admin-detail-label">Connected Address</span>
-          <span className="admin-detail-value truncate">
-            {connectedAddress ?? 'Not connected'}
-          </span>
         </div>
-        <div className="admin-detail-row">
-          <span className="admin-detail-label">Phase</span>
-          <span className="admin-detail-value">{phaseName(phase)}</span>
-        </div>
-        <div className="admin-detail-row">
-          <span className="admin-detail-label">Reserve Ratio</span>
-          <span className="admin-detail-value">{formatPercent(reserveRatio)}</span>
-        </div>
-        <div className="admin-detail-row">
-          <span className="admin-detail-label">Equity</span>
-          <span className="admin-detail-value">{formatBtc(equity)}</span>
-        </div>
-        <div className="admin-detail-row">
-          <span className="admin-detail-label">TWAP Price</span>
-          <span className="admin-detail-value">{formatUsd(twap)}</span>
-        </div>
-        <div className="admin-detail-row">
-          <span className="admin-detail-label">TWAP Window</span>
-          <span className="admin-detail-value">{twapWindow.toString()} blocks</span>
-        </div>
-        <div className="admin-detail-row">
-          <span className="admin-detail-label">OD Supply</span>
-          <span className="admin-detail-value">{formatU256(odSupply)}</span>
-        </div>
-        <div className="admin-detail-row">
-          <span className="admin-detail-label">ORC Supply</span>
-          <span className="admin-detail-value">{formatU256(orcSupply)}</span>
-        </div>
-        <div className="admin-detail-row">
-          <span className="admin-detail-label">WBTC Reserve</span>
-          <span className="admin-detail-value">{formatBtc(wbtcReserve)}</span>
-        </div>
-      </div>
-
-      {/* === Emergency Controls === */}
-      <div className="admin-section-title">Emergency Controls</div>
-      <div className="admin-emergency-card">
-        No emergency controls implemented yet.
       </div>
     </div>
   );

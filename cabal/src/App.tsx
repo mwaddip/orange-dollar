@@ -1,6 +1,5 @@
 import { Header } from './components/Header';
 import { Admin } from './components/Admin';
-import { OfflineDownload } from './components/OfflineDownload';
 import './styles/app.css';
 import './styles/header.css';
 
@@ -11,7 +10,6 @@ export function App() {
       <main className="main">
         <Admin />
       </main>
-      <OfflineDownload />
     </div>
   );
 }

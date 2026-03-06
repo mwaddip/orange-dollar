@@ -13,29 +13,42 @@ import { executeStep, buildPermafrostP2TR } from '../lib/executor.js';
 interface StepDef {
   id: number;
   method: string;
-  contractKey: 'od' | 'orc' | 'reserve';
+  contractKey: 'od' | 'orc' | 'reserve' | 'wbtc' | 'dynamic';
+  /** For dynamic steps, the params key that holds the contract address. */
+  contractParam?: string;
 }
 
 const STEPS: StepDef[] = [
   { id: 0, method: 'setReserve', contractKey: 'od' },
   { id: 1, method: 'setReserve', contractKey: 'orc' },
-  { id: 2, method: 'mintORC', contractKey: 'reserve' },
-  { id: 3, method: 'advancePhase', contractKey: 'reserve' },
-  { id: 4, method: 'premintOD', contractKey: 'reserve' },
-  // 5: external (MotoSwap UI)
-  { id: 6, method: 'initPool', contractKey: 'reserve' },
-  { id: 7, method: 'updateTwapSnapshot', contractKey: 'reserve' },
-  { id: 8, method: 'advancePhase', contractKey: 'reserve' },
+  { id: 2, method: 'increaseAllowance', contractKey: 'wbtc' },
+  { id: 3, method: 'mintORC', contractKey: 'reserve' },
+  { id: 4, method: 'advancePhase', contractKey: 'reserve' },
+  { id: 5, method: 'premintOD', contractKey: 'reserve' },
+  { id: 6, method: 'increaseAllowance', contractKey: 'od' },
+  { id: 7, method: 'increaseAllowance', contractKey: 'wbtc' },
+  // 8: external (MotoSwap UI)
+  { id: 9, method: 'initPool', contractKey: 'reserve' },
+  { id: 10, method: 'updateTwapSnapshot', contractKey: 'reserve' },
+  { id: 11, method: 'advancePhase', contractKey: 'reserve' },
+  { id: 12, method: 'transfer', contractKey: 'dynamic', contractParam: 'contractAddr' },
+  { id: 13, method: 'transferOwnership', contractKey: 'dynamic', contractParam: 'contractAddr' },
 ];
 
-function getStepContract(step: StepDef, addresses: ServerConfig['addresses']): string {
+function getStepContract(
+  step: StepDef,
+  addresses: ServerConfig['addresses'],
+  params?: Record<string, string>,
+): string {
+  if (step.contractKey === 'dynamic' && step.contractParam && params) {
+    return params[step.contractParam] ?? '';
+  }
   switch (step.contractKey) {
-    case 'od':
-      return addresses.od;
-    case 'orc':
-      return addresses.orc;
-    case 'reserve':
-      return addresses.reserve;
+    case 'od': return addresses.od;
+    case 'orc': return addresses.orc;
+    case 'wbtc': return addresses.wbtc;
+    case 'reserve': return addresses.reserve;
+    default: return '';
   }
 }
 
@@ -70,7 +83,7 @@ export function cabalRouter(config: ServerConfig): Router {
     }
 
     const safeParams = (params ?? {}) as Record<string, string>;
-    const contract = getStepContract(step, config.addresses);
+    const contract = getStepContract(step, config.addresses, safeParams);
     const messageHash = buildStepMessage(stepId, step.method, contract, safeParams);
 
     res.json({
@@ -198,7 +211,7 @@ export function cabalRouter(config: ServerConfig): Router {
 
     // Rebuild message hash from stepId + params to prevent tampering
     const safeParams = (params ?? {}) as Record<string, string>;
-    const contract = getStepContract(step, config.addresses);
+    const contract = getStepContract(step, config.addresses, safeParams);
     const rebuilt = buildStepMessage(stepId, step.method, contract, safeParams);
     const rebuiltHex = toHex(rebuilt);
 
