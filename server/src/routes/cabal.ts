@@ -80,13 +80,13 @@ export function cabalRouter(config: ServerConfig): Router {
     });
   });
 
-  // GET /wallet-status — check if ECDSA signing wallet exists
+  // GET /wallet-status — check if ECDSA signing wallet exists + expose public key
   router.get('/wallet-status', (_req, res) => {
     if (config.ecdsaPrivateKey) {
       const p2tr = buildPermafrostP2TR(config);
-      res.json({ exists: true, p2tr });
+      res.json({ exists: true, p2tr, permafrostPublicKey: config.permafrostPublicKey });
     } else {
-      res.json({ exists: false });
+      res.json({ exists: false, permafrostPublicKey: config.permafrostPublicKey });
     }
   });
 

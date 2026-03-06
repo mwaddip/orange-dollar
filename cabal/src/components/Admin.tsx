@@ -175,9 +175,6 @@ export function Admin() {
 
   const { addToast } = useToast();
 
-  // -- Threshold signing mode detection --
-  const thresholdMode = !!networkConfig.permafrostPublicKey;
-
   // -- Threshold signing state --
   const [thresholdStep, setThresholdStep] = useState<StepDef | null>(null);
   const [thresholdMessage, setThresholdMessage] = useState<Uint8Array | null>(null);
@@ -203,23 +200,29 @@ export function Admin() {
   } | null>(null);
   const [importError, setImportError] = useState('');
 
-  // -- Wallet status state --
+  // -- Wallet + PERMAFROST status (fetched from server) --
+  const [permafrostPubKey, setPermafrostPubKey] = useState<string | null>(
+    networkConfig.permafrostPublicKey ?? null,
+  );
   const [walletExists, setWalletExists] = useState<boolean | null>(null);
   const [walletP2TR, setWalletP2TR] = useState<string | null>(null);
   const [walletPassphrase, setWalletPassphrase] = useState('');
   const [walletGenerating, setWalletGenerating] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
 
+  const thresholdMode = !!permafrostPubKey;
+
   useEffect(() => {
-    if (!networkConfig.cabalApiUrl || !thresholdMode) return;
+    if (!networkConfig.cabalApiUrl) return;
     fetch(`${networkConfig.cabalApiUrl}/wallet-status`)
       .then((res) => res.json())
-      .then((data: { exists: boolean; p2tr?: string }) => {
+      .then((data: { exists: boolean; p2tr?: string; permafrostPublicKey?: string }) => {
         setWalletExists(data.exists);
         if (data.p2tr) setWalletP2TR(data.p2tr);
+        if (data.permafrostPublicKey) setPermafrostPubKey(data.permafrostPublicKey);
       })
       .catch(() => setWalletExists(null));
-  }, [networkConfig.cabalApiUrl, thresholdMode]);
+  }, [networkConfig.cabalApiUrl]);
 
   const handleGenerateWallet = useCallback(async () => {
     if (!networkConfig.cabalApiUrl) return;
