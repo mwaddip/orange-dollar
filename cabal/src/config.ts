@@ -24,6 +24,7 @@ export interface NetworkConfig {
 interface RawNetworkEntry {
   label: string;
   rpcUrl: string;
+  permafrostPublicKey?: string;
   addresses: NetworkConfig['addresses'];
 }
 
@@ -45,6 +46,7 @@ export async function loadNetworks(): Promise<Record<string, NetworkConfig>> {
         label: entry.label,
         rpcUrl: entry.rpcUrl,
         network: NETWORK_MAP[name] ?? networks.opnetTestnet,
+        permafrostPublicKey: entry.permafrostPublicKey,
         cabalApiUrl: '/api/cabal',
         addresses: entry.addresses,
       },
