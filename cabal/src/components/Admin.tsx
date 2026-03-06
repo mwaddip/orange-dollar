@@ -667,25 +667,24 @@ export function Admin() {
               </div>
             ))}
 
-            {thresholdMode ? (
+            <button
+              className="step-execute-btn"
+              disabled={!connectedAddress || isBusy}
+              onClick={() => void handleExecuteStep(step)}
+            >
+              {isBusy && activeStepId === step.id
+                ? statusLabel(contractCall.status)
+                : `Execute Step ${step.id}`}
+            </button>
+
+            {thresholdMode && (
               <button
                 className="step-execute-btn"
-                disabled={!!thresholdStep || submitting || (!!networkConfig.cabalApiUrl && !walletExists)}
+                style={{ marginTop: 8, background: 'var(--bg-surface)', color: 'var(--white)', border: '1px solid var(--orange)' }}
+                disabled={!!thresholdStep || submitting}
                 onClick={() => void handleThresholdPropose(step)}
               >
-                {networkConfig.cabalApiUrl && !walletExists
-                  ? 'Generate wallet first'
-                  : `Propose Step ${step.id}`}
-              </button>
-            ) : (
-              <button
-                className="step-execute-btn"
-                disabled={!connectedAddress || isBusy}
-                onClick={() => void handleExecuteStep(step)}
-              >
-                {isBusy && activeStepId === step.id
-                  ? statusLabel(contractCall.status)
-                  : `Execute Step ${step.id}`}
+                Propose Step {step.id} (PERMAFROST)
               </button>
             )}
 
@@ -818,16 +817,16 @@ export function Admin() {
       {/* === Bootstrap warning + wizard (only pre-LIVE) === */}
       {!isLive && (
         <>
-          {thresholdMode ? (
+          <div className="admin-warning">
+            <span className="admin-warning-icon">!</span>
+            <span>Admin functions require deployer wallet</span>
+          </div>
+
+          {thresholdMode && (
             <div className="threshold-mode-banner">
               <span className="admin-warning-icon">!</span>
-              <span>Threshold signing mode — steps require {' '}
-                multi-party PERMAFROST signatures</span>
-            </div>
-          ) : (
-            <div className="admin-warning">
-              <span className="admin-warning-icon">!</span>
-              <span>Admin functions require deployer wallet</span>
+              <span>PERMAFROST enabled — steps can also be proposed for
+                multi-party threshold signing</span>
             </div>
           )}
 
@@ -874,38 +873,30 @@ export function Admin() {
 
           <div className="admin-section-title">Bootstrap Wizard</div>
 
-          {thresholdMode ? (
+          {thresholdStep && thresholdMessage && (
             <ShareGate>
               {(share) => (
-                <>
-                  {thresholdStep && thresholdMessage && (
-                    <ThresholdSign
-                      stepTitle={thresholdStep.title}
-                      targetContract={getStepContract(thresholdStep, networkConfig.addresses, stepInputs)}
-                      txParams={Object.fromEntries(
-                        (thresholdStep.params ?? []).map((p) => [
-                          p.label,
-                          stepInputs[`${p.key}_${thresholdStep.id}`] || p.placeholder,
-                        ]),
-                      )}
-                      message={thresholdMessage}
-                      share={share}
-                      onSignatureReady={handleSignatureReady}
-                      onCancel={handleThresholdCancel}
-                    />
+                <ThresholdSign
+                  stepTitle={thresholdStep.title}
+                  targetContract={getStepContract(thresholdStep, networkConfig.addresses, stepInputs)}
+                  txParams={Object.fromEntries(
+                    (thresholdStep.params ?? []).map((p) => [
+                      p.label,
+                      stepInputs[`${p.key}_${thresholdStep.id}`] || p.placeholder,
+                    ]),
                   )}
-
-                  <div className="admin-wizard">
-                    {STEPS.map((step) => renderStepCard(step))}
-                  </div>
-                </>
+                  message={thresholdMessage}
+                  share={share}
+                  onSignatureReady={handleSignatureReady}
+                  onCancel={handleThresholdCancel}
+                />
               )}
             </ShareGate>
-          ) : (
-            <div className="admin-wizard">
-              {STEPS.map((step) => renderStepCard(step))}
-            </div>
           )}
+
+          <div className="admin-wizard">
+            {STEPS.map((step) => renderStepCard(step))}
+          </div>
         </>
       )}
 
