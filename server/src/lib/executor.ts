@@ -2,7 +2,7 @@
  * Step executor — mirrors scripts/bootstrap.ts step logic.
  *
  * Each step: getContract -> simulate -> sendTransaction -> return txId.
- * Uses the deployer wallet loaded from mnemonic.
+ * Uses raw ECDSA key + proxy ML-DSA signer (PERMAFROST split-key wallet).
  *
  * Note: `as any` casts are required at cross-package type boundaries
  * because opnet bundles its own copy of @btc-vision/transaction, and
@@ -10,7 +10,8 @@
  * from each copy as incompatible (nominal private fields).
  */
 
-import { Mnemonic, MLDSASecurityLevel } from '@btc-vision/transaction';
+import { Address } from '@btc-vision/transaction';
+import { ECPairSigner, createNobleBackend } from '@btc-vision/ecpair';
 import {
   getContract,
   JSONRpcProvider,
@@ -110,6 +111,47 @@ function resolveNetwork(name: string): Network {
 }
 
 // ---------------------------------------------------------------------------
+// PERMAFROST wallet helpers
+// ---------------------------------------------------------------------------
+
+const backend = createNobleBackend();
+
+/**
+ * Build the PERMAFROST P2TR address from config (ECDSA key + ML-DSA pubkey).
+ * Used by routes to return the wallet address without exposing private key.
+ */
+export function buildPermafrostP2TR(config: ServerConfig): string {
+  if (!config.ecdsaPrivateKey) throw new Error('ECDSA key not configured');
+  const network = resolveNetwork(config.opnetNetwork);
+  const ecPair = ECPairSigner.fromPrivateKey(
+    backend,
+    Buffer.from(config.ecdsaPrivateKey, 'hex') as any,
+    network,
+  );
+  const mldsaPubKey = Buffer.from(config.permafrostPublicKey, 'hex');
+  const addr = new Address(mldsaPubKey, ecPair.publicKey);
+  return addr.p2tr(network);
+}
+
+// ---------------------------------------------------------------------------
+// Validation helpers
+// ---------------------------------------------------------------------------
+
+const DIGITS_RE = /^\d+$/;
+
+function requireBigInt(params: Record<string, string>, key: string, required: boolean = true): bigint {
+  const value = params[key];
+  if (!value) {
+    if (required) throw new Error(`${key} is required`);
+    return 0n;
+  }
+  if (!DIGITS_RE.test(value)) {
+    throw new Error(`${key} must be a non-negative integer (digits only)`);
+  }
+  return BigInt(value);
+}
+
+// ---------------------------------------------------------------------------
 // Executor
 // ---------------------------------------------------------------------------
 
@@ -118,6 +160,10 @@ export async function executeStep(
   stepId: number,
   params: Record<string, string>,
 ): Promise<{ txId: string }> {
+  if (!config.ecdsaPrivateKey) {
+    throw new Error('Signing wallet not configured — generate via /api/cabal/generate-wallet');
+  }
+
   const validSteps = [0, 1, 2, 3, 4, 6, 7, 8];
   if (!validSteps.includes(stepId)) {
     throw new Error(`Step ${stepId} is not executable via CABAL server`);
@@ -125,30 +171,40 @@ export async function executeStep(
 
   const network = resolveNetwork(config.opnetNetwork);
   const provider = new JSONRpcProvider(config.opnetNodeUrl, network as any);
-  const mnemonic = new Mnemonic(
-    config.deployerMnemonic,
-    '',
+
+  // Build ECDSA signer from raw private key
+  const ecPair = ECPairSigner.fromPrivateKey(
+    backend,
+    Buffer.from(config.ecdsaPrivateKey, 'hex') as any,
     network,
-    MLDSASecurityLevel.LEVEL2,
   );
-  const wallet = mnemonic.deriveOPWallet(undefined, 0, 0, false);
+
+  // Proxy ML-DSA signer — only publicKey is read (sign() never called with defaults)
+  const mldsaPubKey = Buffer.from(config.permafrostPublicKey, 'hex');
+  const proxyMldsaSigner = {
+    publicKey: new Uint8Array(mldsaPubKey),
+    sign(_hash: Uint8Array): Uint8Array {
+      throw new Error('Proxy signer: sign() should not be called');
+    },
+    verify(_hash: Uint8Array, _sig: Uint8Array): boolean {
+      throw new Error('Proxy signer: verify() should not be called');
+    },
+  };
+
+  // Derive PERMAFROST address
+  const permafrostAddress = new Address(mldsaPubKey, ecPair.publicKey);
 
   const txParams: TransactionParameters = {
-    signer: wallet.keypair as any,
-    mldsaSigner: wallet.mldsaKeypair as any,
-    refundTo: wallet.p2tr,
+    signer: ecPair as any,
+    mldsaSigner: proxyMldsaSigner as any,
+    refundTo: permafrostAddress.p2tr(network),
     maximumAllowedSatToSpend: 100_000n,
     feeRate: 100,
     network: network as any,
   };
 
-  try {
-    const txId = await runStep(stepId, params, config, provider, network, wallet, txParams);
-    return { txId };
-  } finally {
-    mnemonic.zeroize();
-    wallet.zeroize();
-  }
+  const txId = await runStep(stepId, params, config, provider, network, permafrostAddress, txParams);
+  return { txId };
 }
 
 async function runStep(
@@ -157,13 +213,13 @@ async function runStep(
   config: ServerConfig,
   provider: JSONRpcProvider,
   network: Network,
-  wallet: any,
+  senderAddress: any,
   txParams: TransactionParameters,
 ): Promise<string> {
   switch (stepId) {
     case 0: {
       const od = getContract<IODORCContract & IOP20Contract>(
-        config.addresses.od, OD_ORC_ABI, provider, network as any, wallet.address,
+        config.addresses.od, OD_ORC_ABI, provider, network as any, senderAddress,
       );
       const reserveAddr = await provider.getPublicKeyInfo(
         params['reserveAddr'] ?? config.addresses.reserve, true,
@@ -176,7 +232,7 @@ async function runStep(
 
     case 1: {
       const orc = getContract<IODORCContract & IOP20Contract>(
-        config.addresses.orc, OD_ORC_ABI, provider, network as any, wallet.address,
+        config.addresses.orc, OD_ORC_ABI, provider, network as any, senderAddress,
       );
       const reserveAddr = await provider.getPublicKeyInfo(
         params['reserveAddr'] ?? config.addresses.reserve, true,
@@ -188,11 +244,11 @@ async function runStep(
     }
 
     case 2: {
-      const wbtcAmount = BigInt(params['wbtcAmount'] ?? '0');
-      if (wbtcAmount === 0n) throw new Error('wbtcAmount is required');
+      const wbtcAmount = requireBigInt(params, 'wbtcAmount');
+      if (wbtcAmount === 0n) throw new Error('wbtcAmount must be greater than 0');
 
       const wbtc = getContract<IOP20Contract>(
-        config.addresses.wbtc, OP_20_ABI, provider, network as any, wallet.address,
+        config.addresses.wbtc, OP_20_ABI, provider, network as any, senderAddress,
       );
       const reserveAddr = await provider.getPublicKeyInfo(config.addresses.reserve, true);
 
@@ -202,7 +258,7 @@ async function runStep(
       await approveResult.sendTransaction(txParams);
 
       const reserve = getContract<IODReserveContract>(
-        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, wallet.address,
+        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
       );
       const mintResult = await (reserve as any).mintORC(wbtcAmount);
       if (mintResult.revert) throw new Error(`mintORC reverted: ${mintResult.revert}`);
@@ -211,9 +267,9 @@ async function runStep(
     }
 
     case 3: {
-      const seedPrice = BigInt(params['seedPrice'] ?? '100000000');
+      const seedPrice = params['seedPrice'] ? requireBigInt(params, 'seedPrice') : 100000000n;
       const reserve = getContract<IODReserveContract>(
-        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, wallet.address,
+        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
       );
       const result = await (reserve as any).advancePhase(seedPrice);
       if (result.revert) throw new Error(`advancePhase reverted: ${result.revert}`);
@@ -222,11 +278,11 @@ async function runStep(
     }
 
     case 4: {
-      const odAmount = BigInt(params['odAmount'] ?? '0');
-      if (odAmount === 0n) throw new Error('odAmount is required');
+      const odAmount = requireBigInt(params, 'odAmount');
+      if (odAmount === 0n) throw new Error('odAmount must be greater than 0');
 
       const reserve = getContract<IODReserveContract>(
-        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, wallet.address,
+        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
       );
       const result = await (reserve as any).premintOD(odAmount);
       if (result.revert) throw new Error(`premintOD reverted: ${result.revert}`);
@@ -239,7 +295,7 @@ async function runStep(
       if (!poolAddr) throw new Error('poolAddress is required');
 
       const reserve = getContract<IODReserveContract>(
-        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, wallet.address,
+        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
       );
       const resolvedPool = await provider.getPublicKeyInfo(poolAddr, true);
       const result = await (reserve as any).initPool(resolvedPool);
@@ -250,7 +306,7 @@ async function runStep(
 
     case 7: {
       const reserve = getContract<IODReserveContract>(
-        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, wallet.address,
+        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
       );
       const result = await (reserve as any).updateTwapSnapshot();
       if (result.revert) throw new Error(`updateTwapSnapshot reverted: ${result.revert}`);
@@ -260,7 +316,7 @@ async function runStep(
 
     case 8: {
       const reserve = getContract<IODReserveContract>(
-        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, wallet.address,
+        config.addresses.reserve, OD_RESERVE_ABI, provider, network as any, senderAddress,
       );
       const result = await (reserve as any).advancePhase(0n);
       if (result.revert) throw new Error(`advancePhase reverted: ${result.revert}`);

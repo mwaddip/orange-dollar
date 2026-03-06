@@ -275,6 +275,16 @@ export function DKGWizard() {
     );
   }, []);
 
+  // ── Derived OPNet address (SHA-256 of ML-DSA public key) ──
+  const [derivedAddress, setDerivedAddress] = useState<string | null>(null);
+  useEffect(() => {
+    if (!state.publicKey) { setDerivedAddress(null); return; }
+    const buf = new Uint8Array(state.publicKey).buffer as ArrayBuffer;
+    crypto.subtle.digest('SHA-256', buf).then((hash) => {
+      setDerivedAddress('0x' + toHex(new Uint8Array(hash)));
+    });
+  }, [state.publicKey]);
+
   // ── Session ID prefix for validation ──
   const sidPrefix = state.sessionId ? getSessionIdPrefix(state.sessionId) : '';
 
@@ -973,15 +983,29 @@ export function DKGWizard() {
                 secret key. Each party holds only their own threshold share.
               </div>
 
-              <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Public Key (PERMAFROST Address)</h3>
+              <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Combined ML-DSA Public Key</h3>
               <div className="pubkey-display">{toHex(state.publicKey)}</div>
               <button
                 className="btn btn-secondary btn-full"
-                style={{ marginBottom: 24 }}
+                style={{ marginBottom: 16 }}
                 onClick={() => copyToClipboard(toHex(state.publicKey!), 'pubkey')}
               >
                 {copied === 'pubkey' ? 'Copied!' : 'Copy Public Key'}
               </button>
+
+              {derivedAddress && (
+                <>
+                  <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>PERMAFROST OPNet Address</h3>
+                  <div className="pubkey-display" style={{ fontSize: 13 }}>{derivedAddress}</div>
+                  <button
+                    className="btn btn-secondary btn-full"
+                    style={{ marginBottom: 24 }}
+                    onClick={() => copyToClipboard(derivedAddress, 'address')}
+                  >
+                    {copied === 'address' ? 'Copied!' : 'Copy OPNet Address'}
+                  </button>
+                </>
+              )}
 
               <button
                 className="btn btn-primary btn-full"
@@ -1000,8 +1024,7 @@ export function DKGWizard() {
                     Verify all parties derived the same public key
                   </li>
                   <li style={{ marginBottom: 8 }}>
-                    Call <code>transferOwnership({toHex(state.publicKey).slice(0, 16)}...)</code> on
-                    OD, ORC, and ODReserve contracts
+                    Set <code>PERMAFROST_PUBLIC_KEY</code> on the CABAL server and generate the signing wallet
                   </li>
                   <li>
                     Future admin operations will require {state.threshold} of {state.parties} parties

@@ -11,7 +11,7 @@
   "dependencies": {
     "@btc-vision/bitcoin": "^7.0.0-rc.6",
     "@btc-vision/transaction": "^1.8.0-rc.10",
-    "@btc-vision/post-quantum": "file:../../../../tmp/noble-post-quantum",
+    "@btc-vision/post-quantum": "file:../vendor/post-quantum",
     "@btc-vision/walletconnect": "latest",
     "opnet": "^1.8.1-rc.17",
     "react": "^18.3.1",

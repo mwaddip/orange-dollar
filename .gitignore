@@ -3,5 +3,8 @@ build/
 abis/
 *.tsbuildinfo
 dist/
+dist-offline/
 .tsbuildinfo
 .worktrees/
+.agents/
+.claude/

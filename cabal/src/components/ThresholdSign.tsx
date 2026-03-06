@@ -198,24 +198,38 @@ function BlobExchange({
   canProceed,
   error,
 }: BlobExchangeProps) {
-  const [input, setInput] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [importError, setImportError] = useState('');
 
-  const handleAdd = useCallback(() => {
-    const trimmed = input.trim();
-    if (!trimmed) return;
-    onAddBlob(trimmed);
-    setInput('');
-  }, [input, onAddBlob]);
+  const handleDownload = useCallback(() => {
+    const blob = new Blob([myBlob], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `round${roundNumber}-party${selfId}.blob`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [myBlob, roundNumber, selfId]);
 
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(myBlob).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }).catch(() => { /* clipboard API may fail in some contexts */ });
-  }, [myBlob]);
+  const handleFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setImportError('');
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = (reader.result as string).trim();
+      if (!text) {
+        setImportError('Empty file');
+        return;
+      }
+      onAddBlob(text);
+    };
+    reader.readAsText(file);
+    // Reset input so the same file can be re-selected
+    e.target.value = '';
+  }, [onAddBlob]);
 
   const needed = threshold;
+  const blobSizeKB = (myBlob.length / 1024).toFixed(0);
 
   return (
     <div className="threshold-blob-exchange">
@@ -223,57 +237,34 @@ function BlobExchange({
 
       <PartyTracker activePartyIds={activePartyIds} collected={collected} selfId={selfId} />
 
-      {/* Our blob to copy */}
+      {/* Download own blob */}
       <div className="step-field">
-        <label>
-          Your blob (share with co-signers)
-          <button
-            className="threshold-clear-btn"
-            style={{ marginLeft: 8, fontSize: 11 }}
-            onClick={handleCopy}
-          >
-            {copied ? 'Copied!' : 'Copy'}
-          </button>
-        </label>
-        <textarea
-          className="threshold-blob-textarea"
-          readOnly
-          value={myBlob}
-          onClick={(e) => (e.target as HTMLTextAreaElement).select()}
-        />
-      </div>
-
-      {/* Paste area */}
-      <div className="step-field">
-        <label>
-          Paste co-signer blob ({collected.size}/{needed} collected)
-        </label>
-        <textarea
-          className="threshold-blob-textarea"
-          placeholder="Paste a co-signer's blob here..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-        />
-      </div>
-
-      {error && <div className="step-status error">{error}</div>}
-
-      <div className="threshold-btn-row">
-        <button
-          className="step-execute-btn threshold-btn-half"
-          onClick={handleAdd}
-          disabled={!input.trim()}
-        >
-          Add Blob
-        </button>
-        <button
-          className="step-execute-btn threshold-btn-half"
-          onClick={onProceed}
-          disabled={!canProceed}
-        >
-          Proceed to {roundNumber < 3 ? `Round ${roundNumber + 1}` : 'Combine'}
+        <label>Your blob — send this file to co-signers ({blobSizeKB} KB)</label>
+        <button className="step-execute-btn" onClick={handleDownload}>
+          Download round{roundNumber}-party{selfId}.blob
         </button>
       </div>
+
+      {/* Import co-signer blob */}
+      <div className="step-field">
+        <label>
+          Import co-signer blob file ({collected.size}/{needed} collected)
+        </label>
+        <input type="file" accept=".blob,.txt" onChange={handleFileImport} />
+      </div>
+
+      {(error || importError) && (
+        <div className="step-status error">{error || importError}</div>
+      )}
+
+      <button
+        className="step-execute-btn"
+        onClick={onProceed}
+        disabled={!canProceed}
+        style={{ marginTop: 8 }}
+      >
+        Proceed to {roundNumber < 3 ? `Round ${roundNumber + 1}` : 'Combine'}
+      </button>
     </div>
   );
 }
@@ -319,15 +310,17 @@ export function ThresholdSign({
     };
   }, []);
 
-  // Parse active party IDs from comma-separated input
+  // Parse active party IDs from comma-separated input.
+  // The threshold library requires EXACTLY T active parties (not more).
   const parsePartyIds = useCallback((): number[] | null => {
     const parts = partyInput.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
-    if (parts.length < share.threshold) return null;
     // Ensure our own ID is included
     if (!parts.includes(share.partyId)) {
       parts.push(share.partyId);
     }
-    return [...new Set(parts)].sort((a, b) => a - b);
+    const unique = [...new Set(parts)].sort((a, b) => a - b);
+    if (unique.length !== share.threshold) return null;
+    return unique;
   }, [partyInput, share.partyId, share.threshold]);
 
   // Start signing
@@ -394,6 +387,7 @@ export function ThresholdSign({
         setPhase('complete');
         onSignatureReady(sig);
       } else {
+        setBlobError('All iterations failed norm checks (randomness). Retry from round 1.');
         setPhase('failed');
       }
     } catch (err) {
@@ -424,10 +418,12 @@ export function ThresholdSign({
 
   const needed = share.threshold;
 
-  // Build default party IDs string
-  const defaultPartyIds = Array.from({ length: share.parties }, (_, i) => i).join(', ');
+  // Build default party IDs string — show only the first T parties as example
+  const defaultPartyIds = share.threshold === share.parties
+    ? Array.from({ length: share.parties }, (_, i) => i).join(', ')
+    : Array.from({ length: share.threshold }, (_, i) => i).join(', ');
   const parsedIds = parsePartyIds();
-  const canStartSigning = !!parsedIds && parsedIds.length >= share.threshold;
+  const canStartSigning = !!parsedIds && parsedIds.length === share.threshold;
 
   return (
     <div className="threshold-sign">
@@ -441,10 +437,11 @@ export function ThresholdSign({
         <div className="threshold-idle">
           <p className="threshold-hint">
             This step requires {share.threshold}-of-{share.parties} threshold
-            signing. You are Party {share.partyId}.
+            signing. You are Party {share.partyId}. Choose exactly{' '}
+            {share.threshold} parties to participate (including yourself).
           </p>
           <div className="step-field" style={{ marginBottom: 12 }}>
-            <label>Active signer party IDs (comma-separated, need at least {share.threshold})</label>
+            <label>Active signer party IDs (comma-separated, exactly {share.threshold} required)</label>
             <input
               type="text"
               placeholder={defaultPartyIds}
@@ -526,8 +523,13 @@ export function ThresholdSign({
       {phase === 'failed' && (
         <div className="threshold-complete">
           <div className="step-status error" style={{ cursor: 'default' }}>
-            Signing attempt failed — this can happen due to randomness. Click Retry to start over.
+            Signing attempt failed. Click Retry to start over.
           </div>
+          {blobError && (
+            <div className="step-status error" style={{ cursor: 'default', marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+              {blobError}
+            </div>
+          )}
           <div className="threshold-btn-row" style={{ marginTop: 12 }}>
             <button className="step-execute-btn threshold-btn-half" onClick={handleRetry}>
               Retry

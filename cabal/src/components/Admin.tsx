@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { JSONRpcProvider, getContract } from 'opnet';
 import type { IOP20Contract, CallResult, BaseContractProperties } from 'opnet';
 import type { Address } from '@btc-vision/transaction';
@@ -6,7 +6,6 @@ import { useProtocol } from '../context/ProtocolContext';
 import { useContractCall } from '../hooks/useContractCall';
 import type { TxStatus } from '../hooks/useContractCall';
 import { useToast } from '../context/ToastContext';
-import type { NetworkConfig } from '../config';
 import { OD_RESERVE_ABI } from '../abi/odReserve';
 import { OD_ORC_ABI } from '../abi/op20';
 import {
@@ -18,6 +17,8 @@ import {
 } from '../utils/format';
 import { ShareGate, ThresholdSign } from './ThresholdSign';
 import { toHex } from '../lib/threshold';
+import { STEPS, getStepContract, buildStepMessage } from '../lib/steps';
+import type { StepDef } from '../lib/steps';
 import '../styles/admin.css';
 
 // ---------------------------------------------------------------------------
@@ -66,140 +67,6 @@ function statusLabel(status: TxStatus): string {
       return 'Confirmed!';
     default:
       return '';
-  }
-}
-
-/**
- * Build a deterministic message for threshold signing.
- * SHA-256 of a canonical JSON payload describing the operation.
- */
-async function buildStepMessage(
-  stepId: number,
-  method: string,
-  contract: string,
-  params: Record<string, string>,
-): Promise<Uint8Array> {
-  const payload = JSON.stringify({
-    step: stepId,
-    method,
-    contract,
-    params,
-  }, Object.keys({ step: 0, method: '', contract: '', params: {} }));
-
-  const encoded = new TextEncoder().encode(payload);
-  const hashBuf = await crypto.subtle.digest('SHA-256', encoded);
-  return new Uint8Array(hashBuf);
-}
-
-// ---------------------------------------------------------------------------
-// Step definitions
-// ---------------------------------------------------------------------------
-
-interface StepDef {
-  id: number;
-  title: string;
-  description: string;
-  /** The contract method name (for threshold message construction). */
-  method: string;
-  /** Phases during which this step is relevant (actionable). */
-  phases: number[];
-  /** Whether this step requires external action (not a contract call). */
-  external?: boolean;
-  /** Parameter fields this step needs. */
-  params?: { key: string; label: string; placeholder: string }[];
-}
-
-const STEPS: StepDef[] = [
-  {
-    id: 0,
-    title: 'setReserve on OD',
-    description: 'Link the OD token contract to the ODReserve address.',
-    method: 'setReserve',
-    phases: [0],
-    params: [
-      { key: 'reserveAddr', label: 'Reserve Address', placeholder: '0x...' },
-    ],
-  },
-  {
-    id: 1,
-    title: 'setReserve on ORC',
-    description: 'Link the ORC token contract to the ODReserve address.',
-    method: 'setReserve',
-    phases: [0],
-    params: [
-      { key: 'reserveAddr', label: 'Reserve Address', placeholder: '0x...' },
-    ],
-  },
-  {
-    id: 2,
-    title: 'Seed (mintORC with WBTC)',
-    description: 'Deposit WBTC to mint initial ORC supply. Requires WBTC approval first.',
-    method: 'mintORC',
-    phases: [0],
-    params: [
-      { key: 'wbtcAmount', label: 'WBTC Amount', placeholder: '0.00' },
-    ],
-  },
-  {
-    id: 3,
-    title: 'Advance Phase (set seed price)',
-    description: 'Move from SEEDING to PREMINT. Provide the initial OD price in 1e8 scale (e.g. 100000000 = 1.00 USD).',
-    method: 'advancePhase',
-    phases: [0],
-    params: [
-      { key: 'seedPrice', label: 'Seed Price (1e8 scale)', placeholder: '100000000' },
-    ],
-  },
-  {
-    id: 4,
-    title: 'Premint OD',
-    description: 'Mint the initial OD supply for liquidity pool creation.',
-    method: 'premintOD',
-    phases: [1],
-    params: [
-      { key: 'odAmount', label: 'OD Amount', placeholder: '0.00' },
-    ],
-  },
-  {
-    id: 5,
-    title: 'Add Liquidity to MotoSwap',
-    description: 'Add the preminted OD and WBTC to MotoSwap as a liquidity pool. Use the MotoSwap UI or router contract directly.',
-    method: 'addLiquidity',
-    phases: [1],
-    external: true,
-  },
-  {
-    id: 6,
-    title: 'Initialize Pool on ODReserve',
-    description: 'Register the MotoSwap WBTC/OD pool address in the reserve contract.',
-    method: 'initPool',
-    phases: [1],
-    params: [
-      { key: 'poolAddress', label: 'MotoSwap Pool Address', placeholder: '0x...' },
-    ],
-  },
-  {
-    id: 7,
-    title: 'Update TWAP Snapshot',
-    description: 'Take the first TWAP snapshot from the MotoSwap pool.',
-    method: 'updateTwapSnapshot',
-    phases: [1],
-  },
-  {
-    id: 8,
-    title: 'Final Advance Phase',
-    description: 'Move from PREMINT to LIVE. The protocol becomes fully operational.',
-    method: 'advancePhase',
-    phases: [1],
-  },
-];
-
-/** Get the target contract address for a step. */
-function getStepContract(step: StepDef, addresses: NetworkConfig['addresses']): string {
-  switch (step.id) {
-    case 0: return addresses.od;
-    case 1: return addresses.orc;
-    default: return addresses.reserve;
   }
 }
 
@@ -326,6 +193,65 @@ export function Admin() {
   // -- Server submission state --
   const [submitting, setSubmitting] = useState(false);
 
+  // -- Import external signature state --
+  const [importedSig, setImportedSig] = useState<{
+    stepId: number;
+    stepTitle: string;
+    params: Record<string, string>;
+    signature: string;
+    messageHash: string;
+  } | null>(null);
+  const [importError, setImportError] = useState('');
+
+  // -- Wallet status state --
+  const [walletExists, setWalletExists] = useState<boolean | null>(null);
+  const [walletP2TR, setWalletP2TR] = useState<string | null>(null);
+  const [walletPassphrase, setWalletPassphrase] = useState('');
+  const [walletGenerating, setWalletGenerating] = useState(false);
+  const [walletError, setWalletError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!networkConfig.cabalApiUrl || !thresholdMode) return;
+    fetch(`${networkConfig.cabalApiUrl}/wallet-status`)
+      .then((res) => res.json())
+      .then((data: { exists: boolean; p2tr?: string }) => {
+        setWalletExists(data.exists);
+        if (data.p2tr) setWalletP2TR(data.p2tr);
+      })
+      .catch(() => setWalletExists(null));
+  }, [networkConfig.cabalApiUrl, thresholdMode]);
+
+  const handleGenerateWallet = useCallback(async () => {
+    if (!networkConfig.cabalApiUrl) return;
+    setWalletGenerating(true);
+    setWalletError(null);
+    try {
+      const res = await fetch(`${networkConfig.cabalApiUrl}/generate-wallet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passphrase: walletPassphrase }),
+      });
+      const data = await res.json() as { p2tr?: string; error?: string };
+      if (res.ok && data.p2tr) {
+        setWalletExists(true);
+        setWalletP2TR(data.p2tr);
+        setWalletPassphrase('');
+        addToast('Signing wallet generated!', 'success');
+      } else if (res.status === 403) {
+        setWalletError('Invalid passphrase');
+      } else if (res.status === 409) {
+        setWalletError('Wallet already exists');
+        setWalletExists(true);
+      } else {
+        setWalletError(data.error ?? 'Unknown error');
+      }
+    } catch {
+      setWalletError('Server unreachable');
+    } finally {
+      setWalletGenerating(false);
+    }
+  }, [networkConfig.cabalApiUrl, walletPassphrase, addToast]);
+
   // -- Per-step input values --
   const [stepInputs, setStepInputs] = useState<Record<string, string>>({});
 
@@ -397,7 +323,11 @@ export function Admin() {
             const reserveAddress = await provider.getPublicKeyInfo(addresses.reserve, true);
             return wbtc.increaseAllowance(reserveAddress, wbtcAmount);
           });
-          if (contractCall.status === 'error') return;
+          break;
+        }
+        case 3: {
+          const wbtcAmount = parseAmount(stepInputs['wbtcAmount_3'] ?? '');
+          if (wbtcAmount === 0n) { addToast('Enter a WBTC amount', 'error'); return; }
           await contractCall.execute(async () => {
             const reserve = getContract<IODReserveAdminContract>(
               addresses.reserve, OD_RESERVE_ABI, provider, networkConfig.network, walletAddr,
@@ -406,8 +336,9 @@ export function Admin() {
           });
           break;
         }
-        case 3: {
-          const seedPrice = stepInputs['seedPrice_3'] ? BigInt(stepInputs['seedPrice_3']) : SCALE;
+        case 4: {
+          const seedPriceUsd = stepInputs['seedPrice_4'] ? parseInt(stepInputs['seedPrice_4'], 10) : 1;
+          const seedPrice = BigInt(seedPriceUsd) * SCALE;
           await contractCall.execute(async () => {
             const reserve = getContract<IODReserveAdminContract>(
               addresses.reserve, OD_RESERVE_ABI, provider, networkConfig.network, walletAddr,
@@ -416,8 +347,8 @@ export function Admin() {
           });
           break;
         }
-        case 4: {
-          const odAmount = parseAmount(stepInputs['odAmount_4'] ?? '');
+        case 5: {
+          const odAmount = parseAmount(stepInputs['odAmount_5'] ?? '');
           if (odAmount === 0n) { addToast('Enter an OD amount', 'error'); return; }
           await contractCall.execute(async () => {
             const reserve = getContract<IODReserveAdminContract>(
@@ -427,9 +358,33 @@ export function Admin() {
           });
           break;
         }
-        case 5: break;
         case 6: {
-          const poolAddr = stepInputs['poolAddress_6'] ?? '';
+          const odAmount = parseAmount(stepInputs['odAmount_6'] ?? '');
+          if (odAmount === 0n) { addToast('Enter an OD amount', 'error'); return; }
+          await contractCall.execute(async () => {
+            const od = getContract<IOP20Contract>(
+              addresses.od, OD_ORC_ABI, provider, networkConfig.network, walletAddr,
+            );
+            const resolvedRouter = await provider.getPublicKeyInfo(addresses.router, true);
+            return od.increaseAllowance(resolvedRouter, odAmount);
+          });
+          break;
+        }
+        case 7: {
+          const wbtcAmount = parseAmount(stepInputs['wbtcAmount_7'] ?? '');
+          if (wbtcAmount === 0n) { addToast('Enter a WBTC amount', 'error'); return; }
+          await contractCall.execute(async () => {
+            const wbtc = getContract<IOP20Contract>(
+              addresses.wbtc, OD_ORC_ABI, provider, networkConfig.network, walletAddr,
+            );
+            const resolvedRouter = await provider.getPublicKeyInfo(addresses.router, true);
+            return wbtc.increaseAllowance(resolvedRouter, wbtcAmount);
+          });
+          break;
+        }
+        case 8: break;
+        case 9: {
+          const poolAddr = stepInputs['poolAddress_9'] ?? '';
           if (!poolAddr) { addToast('Enter the MotoSwap pool address', 'error'); return; }
           await contractCall.execute(async () => {
             const reserve = getContract<IODReserveAdminContract>(
@@ -440,7 +395,7 @@ export function Admin() {
           });
           break;
         }
-        case 7: {
+        case 10: {
           await contractCall.execute(async () => {
             const reserve = getContract<IODReserveAdminContract>(
               addresses.reserve, OD_RESERVE_ABI, provider, networkConfig.network, walletAddr,
@@ -449,12 +404,28 @@ export function Admin() {
           });
           break;
         }
-        case 8: {
+        case 11: {
           await contractCall.execute(async () => {
             const reserve = getContract<IODReserveAdminContract>(
               addresses.reserve, OD_RESERVE_ABI, provider, networkConfig.network, walletAddr,
             );
             return reserve.advancePhase(0n);
+          });
+          break;
+        }
+        case 12: {
+          const contractAddr = stepInputs['contractAddr_12'] ?? '';
+          const toAddress = stepInputs['toAddress_12'] ?? '';
+          const amount = parseAmount(stepInputs['amount_12'] ?? '');
+          if (!contractAddr) { addToast('Enter the token contract address', 'error'); return; }
+          if (!toAddress) { addToast('Enter the destination address', 'error'); return; }
+          if (amount === 0n) { addToast('Enter an amount', 'error'); return; }
+          await contractCall.execute(async () => {
+            const token = getContract<IOP20Contract>(
+              contractAddr, OD_ORC_ABI, provider, networkConfig.network, walletAddr,
+            );
+            const resolvedTo = await provider.getPublicKeyInfo(toAddress, true);
+            return token.transfer(resolvedTo, amount);
           });
           break;
         }
@@ -476,12 +447,16 @@ export function Admin() {
   // -- Threshold signing handlers --
   const handleThresholdPropose = useCallback(
     async (step: StepDef) => {
-      const contract = getStepContract(step, networkConfig.addresses);
+      const contract = getStepContract(step, networkConfig.addresses, stepInputs);
 
       // Build step params for message construction
       const paramValues: Record<string, string> = {};
       for (const p of step.params ?? []) {
         paramValues[p.key] = stepInputs[`${p.key}_${step.id}`] || p.placeholder;
+      }
+      // Scale seed price from USD to 1e8 for the contract
+      if (step.id === 4 && paramValues['seedPrice']) {
+        paramValues['seedPrice'] = (BigInt(parseInt(paramValues['seedPrice'], 10)) * SCALE).toString();
       }
 
       const message = await buildStepMessage(step.id, step.method, contract, paramValues);
@@ -500,7 +475,7 @@ export function Admin() {
     async (signature: Uint8Array) => {
       if (!thresholdStep || !thresholdMessage) return;
 
-      const contract = getStepContract(thresholdStep, networkConfig.addresses);
+      const contract = getStepContract(thresholdStep, networkConfig.addresses, stepInputs);
       const messageHex = toHex(thresholdMessage);
       const signatureHex = toHex(signature);
 
@@ -552,6 +527,75 @@ export function Admin() {
     },
     [thresholdStep, thresholdMessage, networkConfig, stepInputs, addToast, refresh],
   );
+
+  // -- Import external signature handlers --
+  const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setImportError('');
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result as string) as {
+          v?: number;
+          type?: string;
+          stepId?: number;
+          stepTitle?: string;
+          params?: Record<string, string>;
+          signature?: string;
+          messageHash?: string;
+        };
+        if (data.v !== 1 || data.type !== 'signature-submission') {
+          setImportError('Invalid file format — expected a signature submission file');
+          return;
+        }
+        if (typeof data.stepId !== 'number' || !data.signature || !data.messageHash) {
+          setImportError('Missing required fields (stepId, signature, messageHash)');
+          return;
+        }
+        setImportedSig({
+          stepId: data.stepId,
+          stepTitle: data.stepTitle ?? `Step ${data.stepId}`,
+          params: data.params ?? {},
+          signature: data.signature,
+          messageHash: data.messageHash,
+        });
+      } catch {
+        setImportError('Failed to parse JSON file');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, []);
+
+  const handleSubmitImported = useCallback(async () => {
+    if (!importedSig || !networkConfig.cabalApiUrl) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${networkConfig.cabalApiUrl}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stepId: importedSig.stepId,
+          params: importedSig.params,
+          signature: importedSig.signature,
+          messageHash: importedSig.messageHash,
+        }),
+      });
+      const data = await res.json() as { success?: boolean; txId?: string; error?: string };
+      if (res.ok && data.success) {
+        addToast(`Transaction submitted: ${data.txId}`, 'success');
+        setImportedSig(null);
+        refresh();
+        return;
+      }
+      addToast(`Server error: ${data.error ?? 'unknown'}`, 'error');
+    } catch {
+      addToast('Server unreachable', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [importedSig, networkConfig.cabalApiUrl, addToast, refresh]);
 
   // ---------------------------------------------------------------------------
   // Render helpers
@@ -623,10 +667,12 @@ export function Admin() {
             {thresholdMode ? (
               <button
                 className="step-execute-btn"
-                disabled={!!thresholdStep || submitting}
+                disabled={!!thresholdStep || submitting || (!!networkConfig.cabalApiUrl && !walletExists)}
                 onClick={() => void handleThresholdPropose(step)}
               >
-                Propose Step {step.id}
+                {networkConfig.cabalApiUrl && !walletExists
+                  ? 'Generate wallet first'
+                  : `Propose Step ${step.id}`}
               </button>
             ) : (
               <button
@@ -692,6 +738,73 @@ export function Admin() {
         />
       )}
 
+      {/* === Import external signature === */}
+      {thresholdMode && networkConfig.cabalApiUrl && !thresholdStep && !sigResult && (
+        <div className="admin-detail-grid" style={{ marginBottom: 24 }}>
+          <div className="admin-section-title">Import External Signature</div>
+          <p className="threshold-hint" style={{ marginTop: 0 }}>
+            Import a signature file produced by the offline PERMAFROST signer.
+          </p>
+
+          {!importedSig && (
+            <div className="step-field">
+              <label>Signature file (.json)</label>
+              <input type="file" accept=".json" onChange={handleImportFile} />
+            </div>
+          )}
+
+          {importError && (
+            <div className="step-status error" style={{ cursor: 'default' }}>{importError}</div>
+          )}
+
+          {importedSig && (
+            <>
+              <div className="admin-detail-row">
+                <span className="admin-detail-label">Step</span>
+                <span className="admin-detail-value">{importedSig.stepTitle}</span>
+              </div>
+              {Object.entries(importedSig.params).map(([key, val]) => (
+                <div className="admin-detail-row" key={key}>
+                  <span className="admin-detail-label">{key}</span>
+                  <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                    {val}
+                  </span>
+                </div>
+              ))}
+              <div className="admin-detail-row">
+                <span className="admin-detail-label">Message Hash</span>
+                <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                  {importedSig.messageHash}
+                </span>
+              </div>
+              <div className="admin-detail-row">
+                <span className="admin-detail-label">Signature</span>
+                <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                  {importedSig.signature.slice(0, 32)}...
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+                <button
+                  className="step-execute-btn"
+                  disabled={submitting || !walletExists}
+                  onClick={() => void handleSubmitImported()}
+                >
+                  {submitting ? 'Submitting...' : !walletExists ? 'Generate wallet first' : 'Submit to CABAL Server'}
+                </button>
+                <button
+                  className="step-execute-btn"
+                  style={{ background: 'var(--bg-surface)', color: 'var(--gray-light)' }}
+                  onClick={() => setImportedSig(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* === Submitting to CABAL server === */}
       {submitting && (
         <div className="step-status simulating" style={{ margin: '16px 0' }}>
@@ -715,6 +828,47 @@ export function Admin() {
             </div>
           )}
 
+          {/* Wallet generation / status (threshold mode only) */}
+          {thresholdMode && networkConfig.cabalApiUrl && walletExists === false && (
+            <div className="admin-detail-grid" style={{ marginBottom: 24 }}>
+              <div className="admin-section-title">Generate Signing Wallet</div>
+              <div className="step-description" style={{ marginBottom: 12 }}>
+                The CABAL server needs a one-time ECDSA signing key.
+                This key signs Bitcoin transactions while the threshold ML-DSA key
+                provides the OPNet identity.
+              </div>
+              <div className="step-field">
+                <label>Passphrase</label>
+                <input
+                  type="password"
+                  placeholder="Enter server passphrase"
+                  value={walletPassphrase}
+                  onChange={(e) => setWalletPassphrase(e.target.value)}
+                  disabled={walletGenerating}
+                />
+              </div>
+              {walletError && (
+                <div className="step-status error" style={{ marginBottom: 8 }}>{walletError}</div>
+              )}
+              <button
+                className="step-execute-btn"
+                disabled={walletGenerating || !walletPassphrase}
+                onClick={() => void handleGenerateWallet()}
+              >
+                {walletGenerating ? 'Generating...' : 'Generate Wallet'}
+              </button>
+            </div>
+          )}
+
+          {thresholdMode && walletP2TR && (
+            <div className="admin-detail-row" style={{ marginBottom: 16 }}>
+              <span className="admin-detail-label">Signing wallet</span>
+              <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                {walletP2TR}
+              </span>
+            </div>
+          )}
+
           <div className="admin-section-title">Bootstrap Wizard</div>
 
           {thresholdMode ? (
@@ -724,7 +878,7 @@ export function Admin() {
                   {thresholdStep && thresholdMessage && (
                     <ThresholdSign
                       stepTitle={thresholdStep.title}
-                      targetContract={getStepContract(thresholdStep, networkConfig.addresses)}
+                      targetContract={getStepContract(thresholdStep, networkConfig.addresses, stepInputs)}
                       txParams={Object.fromEntries(
                         (thresholdStep.params ?? []).map((p) => [
                           p.label,

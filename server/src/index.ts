@@ -6,7 +6,10 @@ import { cabalRouter } from './routes/cabal.js';
 const config = loadConfig();
 const app = express();
 
-app.use(cors({ origin: true }));
+const ALLOWED_ORIGINS = process.env['ALLOWED_ORIGINS']
+  ? process.env['ALLOWED_ORIGINS'].split(',')
+  : ['https://app.odol.cash', 'https://cabal.odol.cash'];
+app.use(cors({ origin: ALLOWED_ORIGINS }));
 app.use(express.json());
 app.use('/api/cabal', cabalRouter(config));
 

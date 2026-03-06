@@ -1,0 +1,29 @@
+{
+  "name": "od-cabal",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:offline": "vite build --config vite.config.offline.ts",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@btc-vision/bitcoin": "^7.0.0-rc.6",
+    "@btc-vision/post-quantum": "file:../vendor/post-quantum",
+    "@btc-vision/transaction": "^1.8.0-rc.10",
+    "@btc-vision/walletconnect": "latest",
+    "opnet": "1.8.1-rc.17",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.9.3",
+    "vite": "^6.2.0",
+    "vite-plugin-singlefile": "^2.3.0"
+  }
+}

@@ -110,6 +110,15 @@ function getSecurityLevel(level: number): number {
 }
 
 /**
+ * The default K_iter from the library (e.g. 3 for 2-of-3) is tuned for the
+ * sign() convenience method which retries up to 500 times internally.
+ * For the interactive multi-round protocol where each retry requires full
+ * blob re-exchange, we override K_iter to 20 for a near-100% single-attempt
+ * success rate.  Both parties must use the same value.
+ */
+const INTERACTIVE_K_ITER = 20;
+
+/**
  * Create a new signing session.
  */
 export function createSession(
@@ -119,6 +128,7 @@ export function createSession(
 ): SigningSession {
   const secLevel = getSecurityLevel(share.level);
   const instance = ThresholdMLDSA.create(secLevel, share.threshold, share.parties);
+  (instance.params as { K_iter: number }).K_iter = INTERACTIVE_K_ITER;
   return {
     instance,
     message,

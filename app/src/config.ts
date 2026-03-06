@@ -5,14 +5,6 @@ export interface NetworkConfig {
   label: string;
   rpcUrl: string;
   network: Network;
-  /** Optional PERMAFROST threshold ML-DSA public key (hex). When set and
-   *  the connected wallet is NOT the contract owner, the admin page enables
-   *  multi-party threshold signing mode. */
-  permafrostPublicKey?: string;
-  /** CABAL submission server URL. When set, threshold signatures are
-   *  auto-submitted to the server for execution. Falls back to manual
-   *  copy mode when absent or when the server is unreachable. */
-  cabalApiUrl?: string;
   addresses: {
     od: string;
     orc: string;
@@ -23,37 +15,35 @@ export interface NetworkConfig {
   };
 }
 
-export const NETWORKS: Record<string, NetworkConfig> = {
-  testnet: {
-    name: 'testnet',
-    label: 'Testnet',
-    rpcUrl: 'https://testnet.opnet.org/api/v1/json-rpc',
-    network: networks.opnetTestnet,
-    cabalApiUrl: '/api/cabal',
-    addresses: {
-      od: '0x32aa95fa34585c7f01d70e02a191548cc7af6ad1cd74c13e16e19c2dad88123b',
-      orc: '0xfebf1d5da9cec9c9b37ed1e841df4470ac3c6608ab0d02af2a6557204a4ae190',
-      reserve: '0x3de883cb1919e92bfa8521ee25308e80fb5eed787fd128e0afee2494628eb50c',
-      wbtc: '0xbc9affbfdb6a3c88835ddf388a169c30b77fd877c71f3ba349127a6924a015d0',
-      factory: '0xa02aa5ca4c307107484d5fb690d811df1cf526f8de204d24528653dcae369a0f',
-      router: '0x0e6ff1f2d7db7556cb37729e3738f4dae82659b984b2621fab08e1111b1b937a',
-    },
-  },
-  mainnet: {
-    name: 'mainnet',
-    label: 'Mainnet',
-    rpcUrl: 'https://api.opnet.org/api/v1/json-rpc',
-    network: networks.bitcoin,
-    addresses: {
-      od: '',
-      orc: '',
-      reserve: '',
-      wbtc: '',
-      factory: '',
-      router: '',
-    },
-  },
+interface RawNetworkEntry {
+  label: string;
+  rpcUrl: string;
+  addresses: NetworkConfig['addresses'];
+}
+
+const NETWORK_MAP: Record<string, Network> = {
+  testnet: networks.opnetTestnet,
+  mainnet: networks.bitcoin,
 };
+
+export async function loadNetworks(): Promise<Record<string, NetworkConfig>> {
+  const res = await fetch('/config.json');
+  if (!res.ok) throw new Error(`Failed to load /config.json: ${res.status}`);
+  const data = (await res.json()) as Record<string, RawNetworkEntry>;
+
+  return Object.fromEntries(
+    Object.entries(data).map(([name, entry]) => [
+      name,
+      {
+        name,
+        label: entry.label,
+        rpcUrl: entry.rpcUrl,
+        network: NETWORK_MAP[name] ?? networks.opnetTestnet,
+        addresses: entry.addresses,
+      },
+    ]),
+  );
+}
 
 // Default network: testnet until March 17 2026, then mainnet
 const now = new Date();

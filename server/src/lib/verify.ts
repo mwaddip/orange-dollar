@@ -11,8 +11,15 @@ export function toHex(bytes: Uint8Array): string {
     .join('');
 }
 
+const HEX_RE = /^(?:0x)?[0-9a-fA-F]*$/;
+
+export function isHex(value: unknown): value is string {
+  return typeof value === 'string' && HEX_RE.test(value) && value.replace(/^0x/, '').length % 2 === 0;
+}
+
 export function fromHex(hex: string): Uint8Array {
   const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
+  if (clean.length % 2 !== 0) throw new Error('Hex string must have even length');
   const out = new Uint8Array(clean.length / 2);
   for (let i = 0; i < out.length; i++) {
     out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
@@ -25,6 +32,7 @@ export function fromHex(hex: string): Uint8Array {
 // ---------------------------------------------------------------------------
 
 const ML_DSA44_SIG_SIZE = 2420;
+const ML_DSA44_PK_SIZE = 1312;
 
 export function verifyThresholdSignature(
   publicKeyHex: string,
@@ -32,6 +40,7 @@ export function verifyThresholdSignature(
   signatureHex: string,
 ): boolean {
   const pubKey = fromHex(publicKeyHex);
+  if (pubKey.length !== ML_DSA44_PK_SIZE) return false;
   const sig = fromHex(signatureHex);
   if (sig.length !== ML_DSA44_SIG_SIZE) return false;
   return ml_dsa44.verify(sig, messageHash, pubKey);

@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "@btc-vision/bitcoin": "^7.0.0-rc.6",
-    "@btc-vision/post-quantum": "file:../../../../tmp/noble-post-quantum",
+    "@btc-vision/ecpair": "^4.0.5",
+    "@btc-vision/post-quantum": "file:../vendor/post-quantum",
     "@btc-vision/transaction": "^1.8.0-rc.10",
     "cors": "^2.8.5",
     "express": "^5.1.0",
