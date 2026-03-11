@@ -5,6 +5,10 @@
  *
  * Each party runs this independently in their own browser.
  * No single party ever sees another's secret share.
+ *
+ * Supports two transport modes:
+ * - Offline: manual copy/paste of blobs between parties
+ * - Relay: auto-send/receive via encrypted WebSocket relay
  */
 
 import { useState, useReducer, useCallback, useRef, useEffect } from 'react';
@@ -38,12 +42,19 @@ import {
   type DKGPhase4Broadcast,
   ThresholdMLDSA,
 } from '../lib/dkg';
+import { RelayClient } from '../lib/relay';
+import { sessionFingerprint } from '../lib/relay-crypto';
 import type { ThresholdKeyShare } from '@btc-vision/post-quantum/threshold-ml-dsa.js';
+
+// ── Constants ──
+
+const RELAY_URL = 'wss://relay.odol.cash/ws';
 
 // ── Types ──
 
 type Step = 'join' | 'commit' | 'reveal' | 'masks' | 'aggregate' | 'complete';
 type Role = 'initiator' | 'joiner';
+type TransportMode = 'choose' | 'offline' | 'relay-create' | 'relay-join';
 
 interface DKGState {
   step: Step;
@@ -257,6 +268,24 @@ function BlobOutput({ blob, label, isPrivate, targetParty, onCopy, copiedLabel }
   );
 }
 
+// ── Relay progress indicator ──
+
+function RelayPhaseProgress({ phase, collected, total, label }: {
+  phase: string;
+  collected: number;
+  total: number;
+  label: string;
+}) {
+  return (
+    <div style={{ textAlign: 'center', padding: '12px 0' }}>
+      <div className="spinner" style={{ margin: '0 auto 12px', width: 24, height: 24 }} />
+      <p style={{ fontSize: 14, color: 'var(--white-dim)' }}>
+        {phase}: {label} ({collected}/{total})
+      </p>
+    </div>
+  );
+}
+
 // ── Main component ──
 
 export function DKGWizard() {
@@ -265,7 +294,33 @@ export function DKGWizard() {
   const [copied, setCopied] = useState<string | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
+  // ── Transport mode state ──
+  const [transportMode, setTransportMode] = useState<TransportMode>('choose');
+  const [relayClient, setRelayClient] = useState<RelayClient | null>(null);
+  const relayClientRef = useRef<RelayClient | null>(null);
+  const [relaySessionCode, setRelaySessionCode] = useState('');
+  const [relaySessionUrl, setRelaySessionUrl] = useState('');
+  const [relayJoinCode, setRelayJoinCode] = useState('');
+  const [relayStatus, setRelayStatus] = useState('');
+  const [relayError, setRelayError] = useState('');
+  const [relayReady, setRelayReady] = useState(false);
+  const [relayFingerprint, setRelayFingerprint] = useState('');
+  const [relayPartyCount, setRelayPartyCount] = useState(0);
+  const [relayPartyTotal, setRelayPartyTotal] = useState(0);
+
+  const isRelayMode = transportMode === 'relay-create' || transportMode === 'relay-join';
+
   const stepIndex = STEPS.indexOf(state.step);
+
+  // Cleanup relay on unmount
+  useEffect(() => {
+    return () => {
+      if (relayClientRef.current) {
+        relayClientRef.current.close();
+        relayClientRef.current = null;
+      }
+    };
+  }, []);
 
   // ── Copy helper ──
   const copyToClipboard = useCallback((text: string, label: string) => {
@@ -288,7 +343,7 @@ export function DKGWizard() {
   // ── Session ID prefix for validation ──
   const sidPrefix = state.sessionId ? getSessionIdPrefix(state.sessionId) : '';
 
-  // ── Smart paste handler ──
+  // ── Smart paste handler (used by both offline paste and relay receive) ──
   const handlePaste = useCallback((text: string) => {
     if (!text.trim()) return;
     dispatch({ type: 'SET_ERROR', error: null });
@@ -371,6 +426,84 @@ export function DKGWizard() {
     setPasteValue('');
   }, [sidPrefix, state.myPartyId, state.collectedPhase1, state.collectedPhase2Pub, state.collectedPhase2Priv, state.collectedPhase3Priv, state.collectedPhase4]);
 
+  // ── Silent paste handler for relay (no error dispatch, returns success boolean) ──
+  const handleRelayBlob = useCallback((text: string): boolean => {
+    if (!text.trim()) return false;
+    const info = identifyBlob(text.trim());
+    if (!info) return false;
+    // Validate session ID
+    if (sidPrefix && info.sid !== sidPrefix) return false;
+    // Reject self-blobs
+    if (info.from === state.myPartyId && info.type !== 'session') return false;
+    // Reject blobs addressed to someone else
+    if (info.to !== -1 && info.to !== state.myPartyId) return false;
+
+    switch (info.type) {
+      case 'p1': {
+        const broadcast = decodePhase1Broadcast(text.trim());
+        if (!broadcast) return false;
+        if (state.collectedPhase1.some(b => b.partyId === broadcast.partyId)) return false;
+        dispatch({ type: 'ADD_PHASE1', broadcast });
+        return true;
+      }
+      case 'p2pub': {
+        const broadcast = decodePhase2Broadcast(text.trim());
+        if (!broadcast) return false;
+        if (state.collectedPhase2Pub.some(b => b.partyId === broadcast.partyId)) return false;
+        dispatch({ type: 'ADD_PHASE2_PUB', broadcast });
+        return true;
+      }
+      case 'p2priv': {
+        const priv = decodePhase2Private(text.trim());
+        if (!priv) return false;
+        if (state.collectedPhase2Priv.some(b => b.fromPartyId === priv.fromPartyId)) return false;
+        dispatch({ type: 'ADD_PHASE2_PRIV', priv });
+        return true;
+      }
+      case 'p3priv': {
+        const priv = decodePhase3Private(text.trim());
+        if (!priv) return false;
+        if (state.collectedPhase3Priv.some(b => b.fromGeneratorId === priv.fromGeneratorId)) return false;
+        dispatch({ type: 'ADD_PHASE3_PRIV', priv });
+        return true;
+      }
+      case 'p4': {
+        const broadcast = decodePhase4Broadcast(text.trim());
+        if (!broadcast) return false;
+        if (state.collectedPhase4.some(b => b.partyId === broadcast.partyId)) return false;
+        dispatch({ type: 'ADD_PHASE4', broadcast });
+        return true;
+      }
+      default:
+        return false;
+    }
+  }, [sidPrefix, state.myPartyId, state.collectedPhase1, state.collectedPhase2Pub, state.collectedPhase2Priv, state.collectedPhase3Priv, state.collectedPhase4]);
+
+  // ════════════════════════════════════════════════════════════════════
+  // RELAY: subscribe to incoming messages
+  // ════════════════════════════════════════════════════════════════════
+
+  useEffect(() => {
+    if (!relayClient) return;
+    const handler = (_from: number, payload: Uint8Array) => {
+      const text = new TextDecoder().decode(payload);
+      handleRelayBlob(text);
+    };
+    relayClient.on('message', handler);
+    return () => { relayClient.off('message', handler); };
+  }, [relayClient, handleRelayBlob]);
+
+  // ── Relay send helpers ──
+  const relaySendBlob = useCallback(async (blob: string, to?: number) => {
+    if (!relayClientRef.current) return;
+    const bytes = new TextEncoder().encode(blob);
+    if (to !== undefined) {
+      await relayClientRef.current.send(to, bytes);
+    } else {
+      await relayClientRef.current.broadcast(bytes);
+    }
+  }, []);
+
   // ════════════════════════════════════════════════════════════════════
   // STEP: JOIN
   // ════════════════════════════════════════════════════════════════════
@@ -404,6 +537,134 @@ export function DKGWizard() {
     : null;
 
   // ════════════════════════════════════════════════════════════════════
+  // RELAY: Create Session
+  // ════════════════════════════════════════════════════════════════════
+
+  const handleRelayCreate = useCallback(async () => {
+    setRelayError('');
+    setRelayStatus('Connecting...');
+
+    const client = new RelayClient(RELAY_URL);
+    relayClientRef.current = client;
+
+    client.on('joined', (_partyId, count, total) => {
+      setRelayPartyCount(count);
+      setRelayPartyTotal(total);
+      setRelayStatus(`Waiting for parties... (${count}/${total})`);
+    });
+
+    client.on('ready', (pubkeys) => {
+      void (async () => {
+        const fp = await sessionFingerprint(pubkeys);
+        setRelayFingerprint(fp);
+        setRelayReady(true);
+        setRelayStatus('All parties connected');
+
+        // Create the DKG session
+        const sid = generateSessionId();
+        const inst = createDKGInstance(state.level, state.threshold, state.parties);
+        const setup = inst.dkgSetup(sid);
+        dispatch({ type: 'INIT_SESSION', sessionId: sid, instance: inst, bitmasks: setup.bitmasks, holdersOf: setup.holdersOf });
+        dispatch({ type: 'SET_PARTY_ID', partyId: client.partyId });
+
+        // Broadcast the session config to all peers
+        const configBlob = encodeSessionConfig(state.threshold, state.parties, state.level, sid);
+        const configBytes = new TextEncoder().encode(configBlob);
+        await client.broadcast(configBytes);
+
+        // Auto-advance to commit phase
+        dispatch({ type: 'SET_STEP', step: 'commit' });
+      })();
+    });
+
+    client.on('error', (errMsg) => {
+      setRelayError(errMsg);
+    });
+
+    try {
+      // DKG: parties = N (total parties), threshold is the DKG threshold
+      const result = await client.create(state.parties, state.threshold);
+      setRelaySessionCode(result.session);
+      setRelaySessionUrl(result.url);
+      setRelayClient(client);
+      setRelayStatus(`Session created. Waiting for parties... (1/${state.parties})`);
+      setRelayPartyCount(1);
+      setRelayPartyTotal(state.parties);
+    } catch (err) {
+      setRelayError(err instanceof Error ? err.message : 'Failed to create relay session');
+      setRelayStatus('');
+      client.close();
+      relayClientRef.current = null;
+    }
+  }, [state.level, state.threshold, state.parties]);
+
+  // ════════════════════════════════════════════════════════════════════
+  // RELAY: Join Session
+  // ════════════════════════════════════════════════════════════════════
+
+  // Ref to track whether we've received the session config (prevents double-init)
+  const relayConfigReceived = useRef(false);
+
+  const handleRelayJoin = useCallback(async () => {
+    if (!relayJoinCode.trim()) return;
+    setRelayError('');
+    setRelayStatus('Connecting...');
+
+    const client = new RelayClient(RELAY_URL);
+    relayClientRef.current = client;
+    relayConfigReceived.current = false;
+
+    // Listen for the session config broadcast from party 0 only
+    client.on('message', (from, payload) => {
+      if (relayConfigReceived.current) return;
+      if (from !== 0) return; // Only accept config from the session creator
+      try {
+        const text = new TextDecoder().decode(payload);
+        const config = decodeSessionConfig(text);
+        if (!config) return; // Not a session config — ignore
+        relayConfigReceived.current = true;
+
+        const sid = sessionIdFromHex(config.sid);
+        dispatch({ type: 'SET_PARAMS', threshold: config.t, parties: config.n, level: config.level });
+        const inst = createDKGInstance(config.level, config.t, config.n);
+        const setup = inst.dkgSetup(sid);
+        dispatch({ type: 'INIT_SESSION', sessionId: sid, instance: inst, bitmasks: setup.bitmasks, holdersOf: setup.holdersOf });
+        dispatch({ type: 'SET_PARTY_ID', partyId: client.partyId });
+
+        // Auto-advance to commit phase
+        dispatch({ type: 'SET_STEP', step: 'commit' });
+      } catch {
+        // Not a session config — ignore
+      }
+    });
+
+    client.on('ready', (pubkeys) => {
+      void (async () => {
+        const fp = await sessionFingerprint(pubkeys);
+        setRelayFingerprint(fp);
+        setRelayReady(true);
+        setRelayStatus('Connected — waiting for session config from creator...');
+      })();
+    });
+
+    client.on('error', (errMsg) => {
+      setRelayError(errMsg);
+    });
+
+    try {
+      await client.join(relayJoinCode.trim().toUpperCase());
+      setRelaySessionCode(client.sessionCode);
+      setRelayClient(client);
+      setRelayStatus('Joined session — waiting for all parties...');
+    } catch (err) {
+      setRelayError(err instanceof Error ? err.message : 'Failed to join relay session');
+      setRelayStatus('');
+      client.close();
+      relayClientRef.current = null;
+    }
+  }, [relayJoinCode]);
+
+  // ════════════════════════════════════════════════════════════════════
   // STEP: COMMIT (Phase 1)
   // ════════════════════════════════════════════════════════════════════
 
@@ -419,6 +680,34 @@ export function DKGWizard() {
   }, [state.instance, state.sessionId, state.myPartyId]);
 
   const phase1Ready = state.collectedPhase1.length === state.parties;
+
+  // Relay: auto-generate commitment once we enter commit phase
+  const relayPhase1Generated = useRef(false);
+  useEffect(() => {
+    if (!isRelayMode || state.step !== 'commit' || relayPhase1Generated.current) return;
+    if (!state.instance || !state.sessionId) return;
+    relayPhase1Generated.current = true;
+    // Small delay to let state settle
+    setTimeout(() => {
+      handleGenerateCommitment();
+    }, 100);
+  }, [isRelayMode, state.step, state.instance, state.sessionId, handleGenerateCommitment]);
+
+  // Relay: auto-broadcast Phase 1 blob when generated
+  const phase1BlobSent = useRef(false);
+  useEffect(() => {
+    if (!isRelayMode || !state.myPhase1Blob || phase1BlobSent.current) return;
+    phase1BlobSent.current = true;
+    void relaySendBlob(state.myPhase1Blob);
+  }, [isRelayMode, state.myPhase1Blob, relaySendBlob]);
+
+  // Relay: auto-advance from commit → reveal when all blobs collected
+  useEffect(() => {
+    if (!isRelayMode || state.step !== 'commit') return;
+    if (phase1Ready) {
+      dispatch({ type: 'SET_STEP', step: 'reveal' });
+    }
+  }, [isRelayMode, state.step, phase1Ready]);
 
   // ════════════════════════════════════════════════════════════════════
   // STEP: REVEAL (Phase 2)
@@ -450,6 +739,21 @@ export function DKGWizard() {
     }
   }, [state.step, state.instance, state.sessionId, state.phase1State, state.myPartyId, state.collectedPhase1, state.parties]);
 
+  // Relay: auto-send Phase 2 blobs (public broadcast + private to targets)
+  const phase2BlobsSent = useRef(false);
+  useEffect(() => {
+    if (!isRelayMode || !state.myPhase2PubBlob || phase2BlobsSent.current) return;
+    phase2BlobsSent.current = true;
+    void (async () => {
+      // Broadcast public reveal
+      await relaySendBlob(state.myPhase2PubBlob!);
+      // Send private reveals to specific parties
+      for (const [targetId, blob] of state.myPhase2PrivBlobs) {
+        await relaySendBlob(blob, targetId);
+      }
+    })();
+  }, [isRelayMode, state.myPhase2PubBlob, state.myPhase2PrivBlobs, relaySendBlob]);
+
   // Count expected private blobs for Phase 2
   const getExpectedPhase2PrivCount = useCallback((): number => {
     const senders = new Set<number>();
@@ -466,6 +770,14 @@ export function DKGWizard() {
   const phase2PubReady = state.collectedPhase2Pub.length === state.parties;
   const phase2PrivReady = state.collectedPhase2Priv.length >= getExpectedPhase2PrivCount();
   const phase2Ready = phase2PubReady && phase2PrivReady;
+
+  // Relay: auto-advance from reveal → masks
+  useEffect(() => {
+    if (!isRelayMode || state.step !== 'reveal') return;
+    if (phase2Ready) {
+      dispatch({ type: 'SET_STEP', step: 'masks' });
+    }
+  }, [isRelayMode, state.step, phase2Ready]);
 
   // ════════════════════════════════════════════════════════════════════
   // STEP: MASKS (Phase 2 Finalize + Phase 3)
@@ -499,6 +811,18 @@ export function DKGWizard() {
   }, [state.step, state.instance, state.sessionId, state.phase1State, state.myPartyId,
       state.collectedPhase1, state.collectedPhase2Pub, state.collectedPhase2Priv]);
 
+  // Relay: auto-send Phase 3 private blobs
+  const phase3BlobsSent = useRef(false);
+  useEffect(() => {
+    if (!isRelayMode || !state.phase2FinalResult || state.myPhase3PrivBlobs.size === 0 || phase3BlobsSent.current) return;
+    phase3BlobsSent.current = true;
+    void (async () => {
+      for (const [targetId, blob] of state.myPhase3PrivBlobs) {
+        await relaySendBlob(blob, targetId);
+      }
+    })();
+  }, [isRelayMode, state.phase2FinalResult, state.myPhase3PrivBlobs, relaySendBlob]);
+
   // Count expected Phase 3 private mask blobs
   const getExpectedPhase3PrivCount = useCallback((): number => {
     if (!state.phase2FinalResult) return 0;
@@ -511,6 +835,14 @@ export function DKGWizard() {
 
   const phase3Ready = state.phase2FinalResult !== null &&
     state.collectedPhase3Priv.length >= getExpectedPhase3PrivCount();
+
+  // Relay: auto-advance from masks → aggregate
+  useEffect(() => {
+    if (!isRelayMode || state.step !== 'masks') return;
+    if (phase3Ready) {
+      dispatch({ type: 'SET_STEP', step: 'aggregate' });
+    }
+  }, [isRelayMode, state.step, phase3Ready]);
 
   // ════════════════════════════════════════════════════════════════════
   // STEP: AGGREGATE (Phase 4)
@@ -539,7 +871,23 @@ export function DKGWizard() {
   }, [state.step, state.instance, state.sessionId, state.myPartyId,
       state.bitmasks, state.phase2FinalResult, state.collectedPhase3Priv]);
 
+  // Relay: auto-broadcast Phase 4 blob
+  const phase4BlobSent = useRef(false);
+  useEffect(() => {
+    if (!isRelayMode || !state.myPhase4Blob || phase4BlobSent.current) return;
+    phase4BlobSent.current = true;
+    void relaySendBlob(state.myPhase4Blob);
+  }, [isRelayMode, state.myPhase4Blob, relaySendBlob]);
+
   const phase4Ready = state.collectedPhase4.length === state.parties;
+
+  // Relay: auto-advance from aggregate → complete
+  useEffect(() => {
+    if (!isRelayMode || state.step !== 'aggregate') return;
+    if (phase4Ready) {
+      dispatch({ type: 'SET_STEP', step: 'complete' });
+    }
+  }, [isRelayMode, state.step, phase4Ready]);
 
   // ════════════════════════════════════════════════════════════════════
   // STEP: COMPLETE (Finalize)
@@ -619,8 +967,266 @@ export function DKGWizard() {
         <div className="warning" style={{ marginBottom: 16 }}>{state.error}</div>
       )}
 
-      {/* ═══════ STEP: JOIN ═══════ */}
-      {state.step === 'join' && (
+      {/* ═══════ MODE SELECTOR (before join) ═══════ */}
+      {state.step === 'join' && transportMode === 'choose' && (
+        <div className="card">
+          <h2>Start Ceremony</h2>
+          <p>Choose how parties will communicate during the DKG ceremony.</p>
+
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--white-dim)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Online (Relay)
+          </div>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+            <button
+              className="btn btn-primary"
+              style={{ flex: 1 }}
+              onClick={() => setTransportMode('relay-create')}
+            >
+              Create Session
+            </button>
+            <button
+              className="btn btn-secondary"
+              style={{ flex: 1 }}
+              onClick={() => setTransportMode('relay-join')}
+            >
+              Join Session
+            </button>
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--white-dim)', marginBottom: 24 }}>
+            Blobs are exchanged automatically via an encrypted WebSocket relay.
+            No blob data ever leaves the encrypted channel.
+          </p>
+
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--white-dim)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Offline (Manual)
+          </div>
+          <button
+            className="btn btn-secondary btn-full"
+            onClick={() => setTransportMode('offline')}
+          >
+            Offline Mode
+          </button>
+          <p style={{ fontSize: 13, color: 'var(--white-dim)', marginTop: 8 }}>
+            Copy and paste blobs manually between parties.
+          </p>
+        </div>
+      )}
+
+      {/* ═══════ RELAY-CREATE: setup ═══════ */}
+      {state.step === 'join' && transportMode === 'relay-create' && (
+        <div className="card">
+          <h2>Create Relay Session</h2>
+
+          {!relaySessionCode && (
+            <>
+              <div className="form-row">
+                <label>
+                  Threshold (T)
+                  <select
+                    value={state.threshold}
+                    onChange={e => {
+                      const t = Number(e.target.value);
+                      dispatch({ type: 'SET_PARAMS', threshold: t, parties: Math.max(t, state.parties), level: state.level });
+                    }}
+                  >
+                    {[2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Parties (N)
+                  <select
+                    value={state.parties}
+                    onChange={e => dispatch({ type: 'SET_PARAMS', threshold: state.threshold, parties: Number(e.target.value), level: state.level })}
+                  >
+                    {[2, 3, 4, 5, 6].filter(n => n >= state.threshold).map(n => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Security Level
+                  <select
+                    value={state.level}
+                    onChange={e => dispatch({ type: 'SET_PARAMS', threshold: state.threshold, parties: state.parties, level: Number(e.target.value) })}
+                  >
+                    {[44, 65, 87].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </label>
+              </div>
+
+              <button
+                className="btn btn-primary btn-full"
+                style={{ marginTop: 16 }}
+                onClick={() => void handleRelayCreate()}
+              >
+                Create Session
+              </button>
+            </>
+          )}
+
+          {/* Session created — waiting for parties */}
+          {relaySessionCode && !relayReady && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: 'var(--white-dim)' }}>Session Code</span>
+                <div style={{ fontFamily: 'monospace', fontSize: 20, fontWeight: 700, letterSpacing: '0.15em' }}>
+                  {relaySessionCode}
+                </div>
+              </div>
+              {relaySessionUrl && (
+                <div style={{ marginBottom: 12 }}>
+                  <span style={{ fontSize: 12, color: 'var(--white-dim)' }}>Session URL</span>
+                  <div style={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all', color: 'var(--white-dim)' }}>
+                    {relaySessionUrl}
+                  </div>
+                </div>
+              )}
+              <p style={{ fontSize: 13, color: 'var(--white-dim)' }}>
+                Share this code with {state.parties - 1} other parties.
+              </p>
+              <div style={{ textAlign: 'center', padding: 12 }}>
+                <div className="spinner" style={{ margin: '0 auto 8px' }} />
+                <p style={{ fontSize: 14 }}>{relayStatus || `Waiting for parties... (${relayPartyCount}/${relayPartyTotal})`}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Ready — show fingerprint */}
+          {relayReady && relayFingerprint && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: 'var(--white-dim)' }}>Session Fingerprint</span>
+                <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 600 }}>{relayFingerprint}</div>
+              </div>
+              <div className="success-box">
+                {relayStatus || 'All parties connected — starting ceremony...'}
+              </div>
+            </div>
+          )}
+
+          {relayError && (
+            <div className="warning" style={{ marginTop: 12 }}>{relayError}</div>
+          )}
+
+          <button
+            className="btn btn-secondary btn-full"
+            style={{ marginTop: 16 }}
+            onClick={() => {
+              if (relayClientRef.current) {
+                relayClientRef.current.close();
+                relayClientRef.current = null;
+              }
+              setRelayClient(null);
+              setRelaySessionCode('');
+              setRelaySessionUrl('');
+              setRelayReady(false);
+              setRelayFingerprint('');
+              setRelayStatus('');
+              setRelayError('');
+              setTransportMode('choose');
+            }}
+          >
+            Back
+          </button>
+        </div>
+      )}
+
+      {/* ═══════ RELAY-JOIN: enter code ═══════ */}
+      {state.step === 'join' && transportMode === 'relay-join' && (
+        <div className="card">
+          <h2>Join Relay Session</h2>
+
+          {!relayClient && (
+            <>
+              <p style={{ fontSize: 13, color: 'var(--white-dim)' }}>
+                Enter the 6-character session code from the session creator.
+              </p>
+              <div className="form-row">
+                <label>
+                  Session Code
+                  <input
+                    type="text"
+                    placeholder="e.g. X7K2M9"
+                    maxLength={6}
+                    value={relayJoinCode}
+                    onChange={e => { setRelayJoinCode(e.target.value.toUpperCase()); setRelayError(''); }}
+                    style={{ fontFamily: 'monospace', fontSize: 18, letterSpacing: '0.15em', textTransform: 'uppercase', textAlign: 'center' }}
+                  />
+                </label>
+              </div>
+              <button
+                className="btn btn-primary btn-full"
+                style={{ marginTop: 8 }}
+                disabled={relayJoinCode.trim().length < 6}
+                onClick={() => void handleRelayJoin()}
+              >
+                Join
+              </button>
+            </>
+          )}
+
+          {/* Joined — waiting for ready */}
+          {relayClient && !relayReady && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: 'var(--white-dim)' }}>Session Code</span>
+                <div style={{ fontFamily: 'monospace', fontSize: 20, fontWeight: 700, letterSpacing: '0.15em' }}>
+                  {relaySessionCode}
+                </div>
+              </div>
+              <div style={{ textAlign: 'center', padding: 12 }}>
+                <div className="spinner" style={{ margin: '0 auto 8px' }} />
+                <p style={{ fontSize: 14 }}>{relayStatus || 'Waiting for all parties...'}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Ready — waiting for session config */}
+          {relayReady && relayFingerprint && state.step === 'join' && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: 'var(--white-dim)' }}>Session Fingerprint</span>
+                <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 600 }}>{relayFingerprint}</div>
+                <p style={{ fontSize: 12, color: 'var(--white-dim)', marginTop: 4 }}>
+                  Verify this matches what the session creator sees.
+                </p>
+              </div>
+              <div style={{ textAlign: 'center', padding: 12 }}>
+                <div className="spinner" style={{ margin: '0 auto 8px' }} />
+                <p style={{ fontSize: 14 }}>Connected — waiting for session config from creator...</p>
+              </div>
+            </div>
+          )}
+
+          {relayError && (
+            <div className="warning" style={{ marginTop: 12 }}>{relayError}</div>
+          )}
+
+          <button
+            className="btn btn-secondary btn-full"
+            style={{ marginTop: 16 }}
+            onClick={() => {
+              if (relayClientRef.current) {
+                relayClientRef.current.close();
+                relayClientRef.current = null;
+              }
+              setRelayClient(null);
+              setRelaySessionCode('');
+              setRelayReady(false);
+              setRelayFingerprint('');
+              setRelayStatus('');
+              setRelayError('');
+              setRelayJoinCode('');
+              setTransportMode('choose');
+            }}
+          >
+            Back
+          </button>
+        </div>
+      )}
+
+      {/* ═══════ STEP: JOIN (offline mode) ═══════ */}
+      {state.step === 'join' && transportMode === 'offline' && (
         <div className="card">
           <h2>Join Ceremony</h2>
 
@@ -744,6 +1350,14 @@ export function DKGWizard() {
               )}
             </>
           )}
+
+          <button
+            className="btn btn-secondary btn-full"
+            style={{ marginTop: 16 }}
+            onClick={() => setTransportMode('choose')}
+          >
+            Back
+          </button>
         </div>
       )}
 
@@ -751,15 +1365,40 @@ export function DKGWizard() {
       {state.step === 'commit' && (
         <div className="card">
           <h2>Phase 1: Commit</h2>
-          <p>Generate your cryptographic commitment and share it with all parties.</p>
+          {isRelayMode ? (
+            <p>Generating and exchanging commitments via relay...</p>
+          ) : (
+            <p>Generate your cryptographic commitment and share it with all parties.</p>
+          )}
 
-          {!state.myPhase1Blob && (
+          {!state.myPhase1Blob && !isRelayMode && (
             <button className="btn btn-primary btn-full" onClick={handleGenerateCommitment}>
               Generate Commitment
             </button>
           )}
 
-          {state.myPhase1Blob && (
+          {/* Relay mode: progress indicator */}
+          {isRelayMode && (
+            <>
+              <PartyTracker
+                collected={state.collectedPhase1.map(b => b.partyId)}
+                total={state.parties}
+                myPartyId={state.myPartyId}
+                label="Commitments"
+              />
+              {!phase1Ready && (
+                <RelayPhaseProgress
+                  phase="Phase 1"
+                  collected={state.collectedPhase1.length}
+                  total={state.parties}
+                  label="commitments received"
+                />
+              )}
+            </>
+          )}
+
+          {/* Offline mode: full blob exchange UI */}
+          {state.myPhase1Blob && !isRelayMode && (
             <>
               <BlobOutput blob={state.myPhase1Blob} label="My Phase 1 Commitment" onCopy={copyToClipboard} copiedLabel={copied} />
               <PartyTracker
@@ -788,7 +1427,11 @@ export function DKGWizard() {
       {state.step === 'reveal' && (
         <div className="card">
           <h2>Phase 2: Reveal</h2>
-          <p>Share your public reveal with everyone, and private reveals with specified parties.</p>
+          {isRelayMode ? (
+            <p>Exchanging reveals via relay...</p>
+          ) : (
+            <p>Share your public reveal with everyone, and private reveals with specified parties.</p>
+          )}
 
           {!state.myPhase2PubBlob && (
             <div style={{ textAlign: 'center', padding: 20 }}>
@@ -797,7 +1440,29 @@ export function DKGWizard() {
             </div>
           )}
 
-          {state.myPhase2PubBlob && (
+          {state.myPhase2PubBlob && isRelayMode && (
+            <>
+              <PartyTracker
+                collected={state.collectedPhase2Pub.map(b => b.partyId)}
+                total={state.parties}
+                myPartyId={state.myPartyId}
+                label="Public reveals"
+              />
+              <div className="party-tracker" style={{ marginTop: 4 }}>
+                <span className="tracker-label">Private reveals: {state.collectedPhase2Priv.length}/{getExpectedPhase2PrivCount()}</span>
+              </div>
+              {!phase2Ready && (
+                <RelayPhaseProgress
+                  phase="Phase 2"
+                  collected={state.collectedPhase2Pub.length + state.collectedPhase2Priv.length}
+                  total={state.parties + getExpectedPhase2PrivCount()}
+                  label="blobs received"
+                />
+              )}
+            </>
+          )}
+
+          {state.myPhase2PubBlob && !isRelayMode && (
             <>
               <BlobOutput blob={state.myPhase2PubBlob} label="Public Reveal (send to everyone)" onCopy={copyToClipboard} copiedLabel={copied} />
 
@@ -844,7 +1509,11 @@ export function DKGWizard() {
       {state.step === 'masks' && (
         <div className="card">
           <h2>Phase 3: Masks</h2>
-          <p>Mask generation and distribution. Some parties generate masks for specific bitmask groups.</p>
+          {isRelayMode ? (
+            <p>Exchanging mask blobs via relay...</p>
+          ) : (
+            <p>Mask generation and distribution. Some parties generate masks for specific bitmask groups.</p>
+          )}
 
           {!state.phase2FinalResult && (
             <div style={{ textAlign: 'center', padding: 20 }}>
@@ -853,7 +1522,30 @@ export function DKGWizard() {
             </div>
           )}
 
-          {state.phase2FinalResult && (
+          {state.phase2FinalResult && isRelayMode && (
+            <>
+              <div className="party-tracker" style={{ marginTop: 12 }}>
+                <span className="tracker-label">
+                  Received masks: {state.collectedPhase3Priv.length}/{getExpectedPhase3PrivCount()}
+                </span>
+              </div>
+              {!phase3Ready && getExpectedPhase3PrivCount() > 0 && (
+                <RelayPhaseProgress
+                  phase="Phase 3"
+                  collected={state.collectedPhase3Priv.length}
+                  total={getExpectedPhase3PrivCount()}
+                  label="mask blobs received"
+                />
+              )}
+              {getExpectedPhase3PrivCount() === 0 && state.myPhase3PrivBlobs.size === 0 && (
+                <div className="success-box">
+                  No mask exchange needed for your party in this round.
+                </div>
+              )}
+            </>
+          )}
+
+          {state.phase2FinalResult && !isRelayMode && (
             <>
               {/* Generator assignments */}
               <div className="generator-info">
@@ -927,7 +1619,11 @@ export function DKGWizard() {
       {state.step === 'aggregate' && (
         <div className="card">
           <h2>Phase 4: Aggregate</h2>
-          <p>Each party broadcasts their aggregate. Collect all to derive the shared public key.</p>
+          {isRelayMode ? (
+            <p>Exchanging aggregates via relay...</p>
+          ) : (
+            <p>Each party broadcasts their aggregate. Collect all to derive the shared public key.</p>
+          )}
 
           {!state.myPhase4Blob && (
             <div style={{ textAlign: 'center', padding: 20 }}>
@@ -936,7 +1632,26 @@ export function DKGWizard() {
             </div>
           )}
 
-          {state.myPhase4Blob && (
+          {state.myPhase4Blob && isRelayMode && (
+            <>
+              <PartyTracker
+                collected={state.collectedPhase4.map(b => b.partyId)}
+                total={state.parties}
+                myPartyId={state.myPartyId}
+                label="Aggregates"
+              />
+              {!phase4Ready && (
+                <RelayPhaseProgress
+                  phase="Phase 4"
+                  collected={state.collectedPhase4.length}
+                  total={state.parties}
+                  label="aggregates received"
+                />
+              )}
+            </>
+          )}
+
+          {state.myPhase4Blob && !isRelayMode && (
             <>
               <BlobOutput blob={state.myPhase4Blob} label="My Aggregate (send to everyone)" onCopy={copyToClipboard} copiedLabel={copied} />
 
@@ -982,6 +1697,13 @@ export function DKGWizard() {
                 Dealerless DKG complete. No single party ever had access to the full
                 secret key. Each party holds only their own threshold share.
               </div>
+
+              {isRelayMode && relayFingerprint && (
+                <div style={{ marginBottom: 16 }}>
+                  <span style={{ fontSize: 12, color: 'var(--white-dim)' }}>Session Fingerprint</span>
+                  <div style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600 }}>{relayFingerprint}</div>
+                </div>
+              )}
 
               <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Combined ML-DSA Public Key</h3>
               <div className="pubkey-display">{toHex(state.publicKey)}</div>
