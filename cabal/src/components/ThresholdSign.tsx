@@ -11,6 +11,7 @@ import {
   destroySession,
 } from '../lib/threshold';
 import type { SigningSession } from '../lib/threshold';
+import type { RelayClient } from '../lib/relay';
 
 // ---------------------------------------------------------------------------
 // Share import
@@ -283,6 +284,10 @@ interface ThresholdSignProps {
   share: DecryptedShare;
   onSignatureReady: (signature: Uint8Array) => void;
   onCancel: () => void;
+  /** Relay client for WebSocket-based blob exchange (optional — used by relay modes). */
+  relayClient?: RelayClient | null;
+  /** Party ID assigned by the relay server (optional — used by relay modes). */
+  relayPartyId?: number;
 }
 
 export function ThresholdSign({
@@ -293,7 +298,12 @@ export function ThresholdSign({
   share,
   onSignatureReady,
   onCancel,
+  relayClient: _relayClient,
+  relayPartyId: _relayPartyId,
 }: ThresholdSignProps) {
+  // Relay props are used by Task 9 (relay transport). Suppress unused warnings.
+  void _relayClient;
+  void _relayPartyId;
   const [phase, setPhase] = useState<SigningPhase>('idle');
   const [session, setSession] = useState<SigningSession | null>(null);
   const [blobError, setBlobError] = useState('');

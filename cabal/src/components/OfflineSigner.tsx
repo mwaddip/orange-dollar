@@ -1,9 +1,11 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import config from '@shared/config.json';
 import { STEPS, getStepContract, buildStepMessage } from '../lib/steps';
 import { ShareGate, ThresholdSign } from './ThresholdSign';
 import { toHex, fromHex } from '../lib/threshold';
 import type { DecryptedShare } from '../lib/share-crypto';
+import { RelayClient } from '../lib/relay';
+import { sessionFingerprint } from '../lib/relay-crypto';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -160,8 +162,36 @@ export function OfflineSigner() {
   const [network, setNetwork] = useState<NetworkName>(networkNames[0]!);
   const addresses = (config[network] as { addresses: NetworkAddresses }).addresses;
 
-  // -- Mode: 'propose' (initiator) or 'join' (co-signer) --
-  const [mode, setMode] = useState<'choose' | 'propose' | 'join'>('choose');
+  // -- Network config (relayUrl etc.) --
+  const networkConfig = config[network] as { label: string; relayUrl?: string; addresses: NetworkAddresses };
+
+  // -- Mode selector --
+  const [mode, setMode] = useState<'choose' | 'propose' | 'join' | 'relay-create' | 'relay-join'>('choose');
+
+  // -- Relay state --
+  const [relayClient, setRelayClient] = useState<RelayClient | null>(null);
+  const [sessionCode, setSessionCode] = useState('');
+  const [sessionUrl, setSessionUrl] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [relayReady, setRelayReady] = useState(false);
+  const [relayPartyId, setRelayPartyId] = useState(-1);
+  const [fingerprint, setFingerprint] = useState('');
+  const [relayError, setRelayError] = useState('');
+  const [relayStatus, setRelayStatus] = useState('');
+  const [relayPartyCount, setRelayPartyCount] = useState(0);
+  const [relayPartyTotal, setRelayPartyTotal] = useState(0);
+  const [thresholdInput, setThresholdInput] = useState(2);
+  const relayClientRef = useRef<RelayClient | null>(null);
+
+  // Cleanup relay client on unmount or network change
+  useEffect(() => {
+    return () => {
+      if (relayClientRef.current) {
+        relayClientRef.current.close();
+        relayClientRef.current = null;
+      }
+    };
+  }, []);
 
   // -- Step selection (propose mode) --
   const [selectedStepId, setSelectedStepId] = useState<number>(0);
@@ -270,13 +300,177 @@ export function OfflineSigner() {
     setMessage(null);
     setProposal(null);
     setProposalBlob('');
+    // Clean up relay client if active
+    if (relayClientRef.current) {
+      relayClientRef.current.close();
+      relayClientRef.current = null;
+      setRelayClient(null);
+      setRelayReady(false);
+      setRelayPartyId(-1);
+      setFingerprint('');
+      setSessionCode('');
+      setSessionUrl('');
+      setRelayStatus('');
+      setRelayError('');
+      setRelayPartyCount(0);
+      setRelayPartyTotal(0);
+    }
     setMode('choose');
   }, []);
 
   const handleDismissResult = useCallback(() => {
     setSigResult(null);
+    // Clean up relay client if active
+    if (relayClientRef.current) {
+      relayClientRef.current.close();
+      relayClientRef.current = null;
+      setRelayClient(null);
+    }
     setMode('choose');
   }, []);
+
+  // -- Relay: Create Session --
+  const handleRelayCreate = useCallback(async () => {
+    if (!networkConfig.relayUrl) return;
+    setRelayError('');
+    setRelayStatus('Connecting...');
+
+    const contract = getStepContract(selectedStep, addresses, stepInputs);
+    const paramValues: Record<string, string> = {};
+    for (const p of selectedStep.params ?? []) {
+      paramValues[p.key] = stepInputs[`${p.key}_${selectedStep.id}`] || p.placeholder;
+    }
+    // Scale seed price from USD to 1e8
+    if (selectedStep.id === 4 && paramValues['seedPrice']) {
+      paramValues['seedPrice'] = (BigInt(parseInt(paramValues['seedPrice'], 10)) * SCALE).toString();
+    }
+
+    // Build the message first
+    let msg: Uint8Array;
+    try {
+      msg = await buildStepMessage(selectedStep.id, selectedStep.method, contract, paramValues);
+    } catch (err) {
+      setRelayError(err instanceof Error ? err.message : 'Failed to build message');
+      setRelayStatus('');
+      return;
+    }
+
+    const prop: Proposal = {
+      v: 1,
+      type: 'proposal',
+      stepId: selectedStep.id,
+      stepTitle: selectedStep.title,
+      method: selectedStep.method,
+      contract,
+      params: paramValues,
+      messageHex: toHex(msg),
+    };
+
+    const client = new RelayClient(networkConfig.relayUrl);
+    relayClientRef.current = client;
+
+    // Set up event handlers before connecting
+    client.on('joined', (_partyId, count, total) => {
+      setRelayPartyCount(count);
+      setRelayPartyTotal(total);
+      setRelayStatus(`Waiting for parties... (${count}/${total})`);
+    });
+
+    client.on('ready', (pubkeys) => {
+      void (async () => {
+        const fp = await sessionFingerprint(pubkeys);
+        setFingerprint(fp);
+        setRelayReady(true);
+        setRelayStatus('All parties connected');
+
+        // Broadcast proposal data to joined parties
+        const proposalBytes = new TextEncoder().encode(JSON.stringify(prop));
+        await client.broadcast(proposalBytes);
+
+        // Set state so ThresholdSign can render
+        setMessage(msg);
+        setProposal(prop);
+        setProposalBlob(encodeProposal(prop));
+        setSigning(true);
+      })();
+    });
+
+    client.on('error', (errMsg) => {
+      setRelayError(errMsg);
+    });
+
+    try {
+      // For signing, parties = threshold (all must participate)
+      const result = await client.create(thresholdInput, thresholdInput);
+      setSessionCode(result.session);
+      setSessionUrl(result.url);
+      setRelayClient(client);
+      setRelayPartyId(client.partyId);
+      setRelayStatus(`Session created. Waiting for parties... (1/${thresholdInput})`);
+      setRelayPartyCount(1);
+      setRelayPartyTotal(thresholdInput);
+    } catch (err) {
+      setRelayError(err instanceof Error ? err.message : 'Failed to create session');
+      setRelayStatus('');
+      client.close();
+      relayClientRef.current = null;
+    }
+  }, [networkConfig.relayUrl, selectedStep, addresses, stepInputs, thresholdInput]);
+
+  // -- Relay: Join Session --
+  const handleRelayJoin = useCallback(async () => {
+    if (!networkConfig.relayUrl || !joinCode.trim()) return;
+    setRelayError('');
+    setRelayStatus('Connecting...');
+
+    const client = new RelayClient(networkConfig.relayUrl);
+    relayClientRef.current = client;
+
+    // Listen for the proposal broadcast from the creator
+    client.on('message', (_from, payload) => {
+      // Only handle the first message as the proposal
+      if (proposal) return; // Already got it
+      try {
+        const text = new TextDecoder().decode(payload);
+        const prop = JSON.parse(text) as Proposal;
+        if (prop.v === 1 && prop.type === 'proposal' && prop.messageHex) {
+          const msg = fromHex(prop.messageHex);
+          setMessage(msg);
+          setProposal(prop);
+          setSelectedStepId(prop.stepId);
+          setSigning(true);
+        }
+      } catch {
+        // Not a proposal message — ignore (could be signing data)
+      }
+    });
+
+    client.on('ready', (pubkeys) => {
+      void (async () => {
+        const fp = await sessionFingerprint(pubkeys);
+        setFingerprint(fp);
+        setRelayReady(true);
+        setRelayStatus('Connected — waiting for proposal from creator...');
+      })();
+    });
+
+    client.on('error', (errMsg) => {
+      setRelayError(errMsg);
+    });
+
+    try {
+      await client.join(joinCode.trim().toUpperCase());
+      setSessionCode(client.sessionCode);
+      setRelayClient(client);
+      setRelayPartyId(client.partyId);
+      setRelayStatus('Joined session — waiting for all parties...');
+    } catch (err) {
+      setRelayError(err instanceof Error ? err.message : 'Failed to join session');
+      setRelayStatus('');
+      client.close();
+      relayClientRef.current = null;
+    }
+  }, [networkConfig.relayUrl, joinCode, proposal]);
 
   const [proposalCopied, setProposalCopied] = useState(false);
   const copyProposal = useCallback(() => {
@@ -350,19 +544,50 @@ export function OfflineSigner() {
       {mode === 'choose' && !signing && !sigResult && (
         <div className="admin-detail-grid" style={{ marginBottom: 24 }}>
           <div className="admin-section-title">What would you like to do?</div>
+
+          {networkConfig.relayUrl && (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-light)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Online (Relay)
+              </div>
+              <div className="threshold-btn-row" style={{ marginBottom: 16 }}>
+                <button
+                  className="step-execute-btn threshold-btn-half"
+                  onClick={() => setMode('relay-create')}
+                >
+                  Create Session
+                </button>
+                <button
+                  className="step-execute-btn threshold-btn-half"
+                  style={{ background: 'var(--bg-surface)', color: 'var(--white)' }}
+                  onClick={() => setMode('relay-join')}
+                >
+                  Join Session
+                </button>
+              </div>
+              <p className="threshold-hint" style={{ marginTop: 0, marginBottom: 16 }}>
+                <strong>Create Session</strong> to start a relay-coordinated signing ceremony.{' '}
+                <strong>Join Session</strong> if you have a session code from another signer.
+              </p>
+            </>
+          )}
+
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-light)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Offline (Manual Blob Exchange)
+          </div>
           <div className="threshold-btn-row">
             <button
               className="step-execute-btn threshold-btn-half"
               onClick={() => setMode('propose')}
             >
-              Propose a Step
+              Offline: Propose
             </button>
             <button
               className="step-execute-btn threshold-btn-half"
               style={{ background: 'var(--bg-surface)', color: 'var(--white)' }}
               onClick={() => setMode('join')}
             >
-              Join Signing Session
+              Offline: Join
             </button>
           </div>
           <p className="threshold-hint" style={{ marginTop: 12, marginBottom: 0 }}>
@@ -565,7 +790,223 @@ export function OfflineSigner() {
       )}
 
       {/* ============================================================= */}
-      {/* THRESHOLD SIGNING (both modes end up here)                     */}
+      {/* RELAY-CREATE MODE: step selector + params → create session     */}
+      {/* ============================================================= */}
+      {mode === 'relay-create' && !signing && !sigResult && (
+        <div className="admin-detail-grid" style={{ marginBottom: 24 }}>
+          <div className="admin-section-title">Create Relay Session</div>
+
+          {!sessionCode && (
+            <>
+              <div className="step-field" style={{ marginBottom: 16 }}>
+                <label>Bootstrap Step</label>
+                <select
+                  value={selectedStepId}
+                  onChange={(e) => {
+                    setSelectedStepId(parseInt(e.target.value, 10));
+                    setMessage(null);
+                    setProposal(null);
+                    setProposalBlob('');
+                  }}
+                >
+                  {STEPS.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.id}. {s.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="step-description" style={{ marginLeft: 0, marginBottom: 16 }}>
+                {selectedStep.description}
+              </div>
+
+              {selectedStep.external && (
+                <div className="step-status error" style={{ cursor: 'default', marginBottom: 16 }}>
+                  This step is performed externally and does not require threshold signing.
+                </div>
+              )}
+
+              {!selectedStep.external && (
+                <>
+                  {selectedStep.params?.map((param) => (
+                    <div key={param.key} className="step-field" style={{ marginBottom: 12 }}>
+                      <label>{param.label}</label>
+                      <input
+                        type="text"
+                        placeholder={param.placeholder}
+                        value={stepInputs[`${param.key}_${selectedStep.id}`] ?? ''}
+                        onChange={(e) => setInput(`${param.key}_${selectedStep.id}`, e.target.value)}
+                      />
+                    </div>
+                  ))}
+
+                  <div className="step-field" style={{ marginBottom: 16 }}>
+                    <label>Threshold (number of signers required)</label>
+                    <input
+                      type="number"
+                      min={2}
+                      max={10}
+                      value={thresholdInput}
+                      onChange={(e) => setThresholdInput(parseInt(e.target.value, 10) || 2)}
+                    />
+                  </div>
+
+                  <button
+                    className="step-execute-btn"
+                    onClick={() => void handleRelayCreate()}
+                  >
+                    Create Session
+                  </button>
+                </>
+              )}
+            </>
+          )}
+
+          {/* Session created — waiting for parties */}
+          {sessionCode && !relayReady && (
+            <div style={{ marginTop: 16 }}>
+              <div className="admin-detail-row">
+                <span className="admin-detail-label">Session Code</span>
+                <span className="admin-detail-value" style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, letterSpacing: '0.15em' }}>
+                  {sessionCode}
+                </span>
+              </div>
+              {sessionUrl && (
+                <div className="admin-detail-row">
+                  <span className="admin-detail-label">Session URL</span>
+                  <span className="admin-detail-value truncate" style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                    {sessionUrl}
+                  </span>
+                </div>
+              )}
+              <div className="step-status" style={{ cursor: 'default', marginTop: 12, background: 'rgba(243, 156, 18, 0.08)', color: 'var(--orange)' }}>
+                {relayStatus || `Waiting for parties... (${relayPartyCount}/${relayPartyTotal})`}
+              </div>
+            </div>
+          )}
+
+          {/* Ready — show fingerprint */}
+          {relayReady && fingerprint && !signing && (
+            <div style={{ marginTop: 16 }}>
+              <div className="admin-detail-row">
+                <span className="admin-detail-label">Session Fingerprint</span>
+                <span className="admin-detail-value" style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600 }}>
+                  {fingerprint}
+                </span>
+              </div>
+              <div className="step-status confirmed" style={{ cursor: 'default', marginTop: 12 }}>
+                {relayStatus || 'All parties connected — starting signing...'}
+              </div>
+            </div>
+          )}
+
+          {relayError && (
+            <div className="step-status error" style={{ cursor: 'default', marginTop: 12 }}>
+              {relayError}
+            </div>
+          )}
+
+          <button
+            className="step-execute-btn"
+            style={{ marginTop: 12, background: 'var(--bg-surface)', color: 'var(--gray-light)' }}
+            onClick={handleCancel}
+          >
+            Back
+          </button>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* RELAY-JOIN MODE: enter session code → join → sign              */}
+      {/* ============================================================= */}
+      {mode === 'relay-join' && !signing && !sigResult && (
+        <div className="admin-detail-grid" style={{ marginBottom: 24 }}>
+          <div className="admin-section-title">Join Relay Session</div>
+
+          {!relayClient && (
+            <>
+              <p className="threshold-hint">
+                Enter the 6-character session code shared by the session creator.
+              </p>
+
+              <div className="step-field" style={{ marginBottom: 12 }}>
+                <label>Session Code</label>
+                <input
+                  type="text"
+                  placeholder="e.g. X7K2M9"
+                  maxLength={6}
+                  value={joinCode}
+                  onChange={(e) => { setJoinCode(e.target.value.toUpperCase()); setRelayError(''); }}
+                  style={{ fontFamily: 'monospace', fontSize: 16, letterSpacing: '0.15em', textTransform: 'uppercase' }}
+                />
+              </div>
+
+              <button
+                className="step-execute-btn"
+                disabled={joinCode.trim().length < 6}
+                onClick={() => void handleRelayJoin()}
+              >
+                Join
+              </button>
+            </>
+          )}
+
+          {/* Joined — waiting for ready / proposal */}
+          {relayClient && !relayReady && (
+            <div style={{ marginTop: 16 }}>
+              <div className="admin-detail-row">
+                <span className="admin-detail-label">Session Code</span>
+                <span className="admin-detail-value" style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, letterSpacing: '0.15em' }}>
+                  {sessionCode}
+                </span>
+              </div>
+              <div className="admin-detail-row">
+                <span className="admin-detail-label">Your Party ID</span>
+                <span className="admin-detail-value">{relayPartyId}</span>
+              </div>
+              <div className="step-status" style={{ cursor: 'default', marginTop: 12, background: 'rgba(243, 156, 18, 0.08)', color: 'var(--orange)' }}>
+                {relayStatus || 'Waiting for all parties to connect...'}
+              </div>
+            </div>
+          )}
+
+          {/* Ready — show fingerprint, waiting for proposal */}
+          {relayReady && fingerprint && !signing && (
+            <div style={{ marginTop: 16 }}>
+              <div className="admin-detail-row">
+                <span className="admin-detail-label">Session Fingerprint</span>
+                <span className="admin-detail-value" style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600 }}>
+                  {fingerprint}
+                </span>
+              </div>
+              <p className="threshold-hint" style={{ marginTop: 8 }}>
+                Verify this fingerprint matches what the session creator sees.
+              </p>
+              <div className="step-status" style={{ cursor: 'default', marginTop: 12, background: 'rgba(46, 204, 113, 0.08)', color: 'var(--green)' }}>
+                {relayStatus || 'Connected — waiting for proposal from creator...'}
+              </div>
+            </div>
+          )}
+
+          {relayError && (
+            <div className="step-status error" style={{ cursor: 'default', marginTop: 12 }}>
+              {relayError}
+            </div>
+          )}
+
+          <button
+            className="step-execute-btn"
+            style={{ marginTop: 12, background: 'var(--bg-surface)', color: 'var(--gray-light)' }}
+            onClick={handleCancel}
+          >
+            Back
+          </button>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* THRESHOLD SIGNING (all modes end up here)                      */}
       {/* ============================================================= */}
       {signing && message && proposal && (
         <ShareGate>
@@ -580,6 +1021,8 @@ export function OfflineSigner() {
                 share={share}
                 onSignatureReady={handleSignatureReady}
                 onCancel={handleCancel}
+                relayClient={relayClient}
+                relayPartyId={relayPartyId}
               />
             );
           }}
