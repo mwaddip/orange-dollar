@@ -2,6 +2,7 @@
   "testnet": {
     "label": "Testnet",
     "rpcUrl": "https://testnet.opnet.org/api/v1/json-rpc",
+    "relayUrl": "wss://relay.odol.cash/ws",
     "addresses": {
       "od": "0x32aa95fa34585c7f01d70e02a191548cc7af6ad1cd74c13e16e19c2dad88123b",
       "orc": "0xfebf1d5da9cec9c9b37ed1e841df4470ac3c6608ab0d02af2a6557204a4ae190",
@@ -14,6 +15,7 @@
   "mainnet": {
     "label": "Mainnet",
     "rpcUrl": "https://api.opnet.org/api/v1/json-rpc",
+    "relayUrl": "wss://relay.odol.cash/ws",
     "addresses": {
       "od": "",
       "orc": "",

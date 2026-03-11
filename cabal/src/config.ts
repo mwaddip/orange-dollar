@@ -11,6 +11,8 @@ export interface NetworkConfig {
   /** CABAL submission server URL. When set, threshold signatures are
    *  auto-submitted to the server for execution. */
   cabalApiUrl?: string;
+  /** Encrypted relay server URL for WebSocket-based ceremony coordination. */
+  relayUrl?: string;
   addresses: {
     od: string;
     orc: string;
@@ -25,6 +27,7 @@ interface RawNetworkEntry {
   label: string;
   rpcUrl: string;
   permafrostPublicKey?: string;
+  relayUrl?: string;
   addresses: NetworkConfig['addresses'];
 }
 
@@ -48,6 +51,7 @@ export async function loadNetworks(): Promise<Record<string, NetworkConfig>> {
         network: NETWORK_MAP[name] ?? networks.opnetTestnet,
         permafrostPublicKey: entry.permafrostPublicKey,
         cabalApiUrl: '/api/cabal',
+        relayUrl: entry.relayUrl,
         addresses: entry.addresses,
       },
     ]),
