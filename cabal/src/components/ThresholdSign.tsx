@@ -298,11 +298,11 @@ export function ThresholdSign({
   share,
   onSignatureReady,
   onCancel,
-  relayClient: _relayClient,
+  relayClient,
   relayPartyId: _relayPartyId,
 }: ThresholdSignProps) {
-  // Relay props are used by Task 9 (relay transport). Suppress unused warnings.
-  void _relayClient;
+  // relayPartyId is the relay-server-assigned ID (used by the caller for routing);
+  // signing logic uses share.partyId (cryptographic identity) and relayClient.parties.
   void _relayPartyId;
   const [phase, setPhase] = useState<SigningPhase>('idle');
   const [session, setSession] = useState<SigningSession | null>(null);
@@ -320,6 +320,9 @@ export function ThresholdSign({
     };
   }, []);
 
+  // Ref to track whether relay auto-init has fired (prevent double-start)
+  const relayInitRef = useRef(false);
+
   // Parse active party IDs from comma-separated input.
   // The threshold library requires EXACTLY T active parties (not more).
   const parsePartyIds = useCallback((): number[] | null => {
@@ -333,18 +336,35 @@ export function ThresholdSign({
     return unique;
   }, [partyInput, share.partyId, share.threshold]);
 
-  // Start signing
-  const startSigning = useCallback(() => {
-    const ids = parsePartyIds();
-    if (!ids || ids.length < share.threshold) return;
+  // Helper: broadcast a blob string via relay
+  const broadcastBlob = useCallback((blob: string) => {
+    if (!relayClient) return;
+    const blobBytes = new TextEncoder().encode(blob);
+    void relayClient.broadcast(blobBytes);
+  }, [relayClient]);
 
+  // Start signing (shared between manual and relay modes)
+  const startSigningWithIds = useCallback((ids: number[]) => {
     setActivePartyIds(ids);
     const sess = createSession(message, share, ids);
-    round1(sess);
+    const blob = round1(sess);
     sessionRef.current = sess;
     setSession({ ...sess });
     setPhase('round1');
-  }, [message, share, parsePartyIds]);
+
+    // In relay mode, auto-broadcast round 1 blob
+    if (relayClient && blob) {
+      const blobBytes = new TextEncoder().encode(blob);
+      void relayClient.broadcast(blobBytes);
+    }
+  }, [message, share, relayClient]);
+
+  // Start signing (manual mode — parses party IDs from input)
+  const startSigning = useCallback(() => {
+    const ids = parsePartyIds();
+    if (!ids || ids.length < share.threshold) return;
+    startSigningWithIds(ids);
+  }, [share.threshold, parsePartyIds, startSigningWithIds]);
 
   // Current round number for validation
   const currentRound = phase === 'round1' ? 1 : phase === 'round2' ? 2 : phase === 'round3' ? 3 : undefined;
@@ -369,10 +389,15 @@ export function ThresholdSign({
       setSession({ ...sessionRef.current });
       setPhase('round2');
       setBlobError('');
+
+      // Auto-broadcast round 2 blob in relay mode
+      if (relayClient && sessionRef.current.myRound2Blob) {
+        broadcastBlob(sessionRef.current.myRound2Blob);
+      }
     } catch (err) {
       setBlobError(err instanceof Error ? err.message : 'Round 2 failed');
     }
-  }, []);
+  }, [relayClient, broadcastBlob]);
 
   // Advance to round 3
   const advanceToRound3 = useCallback(() => {
@@ -382,10 +407,15 @@ export function ThresholdSign({
       setSession({ ...sessionRef.current });
       setPhase('round3');
       setBlobError('');
+
+      // Auto-broadcast round 3 blob in relay mode
+      if (relayClient && sessionRef.current.myRound3Blob) {
+        broadcastBlob(sessionRef.current.myRound3Blob);
+      }
     } catch (err) {
       setBlobError(err instanceof Error ? err.message : 'Round 3 failed');
     }
-  }, []);
+  }, [relayClient, broadcastBlob]);
 
   // Combine
   const doCombine = useCallback(() => {
@@ -415,6 +445,7 @@ export function ThresholdSign({
     setSession(null);
     setPhase('idle');
     setBlobError('');
+    relayInitRef.current = false; // allow relay re-init on retry
   }, []);
 
   // Cancel with cleanup
@@ -426,6 +457,59 @@ export function ThresholdSign({
     onCancel();
   }, [onCancel]);
 
+  // ---------------------------------------------------------------------------
+  // Relay: auto-initialize signing when relayClient is provided
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!relayClient || !relayClient.isReady || relayInitRef.current) return;
+    if (phase !== 'idle') return;
+
+    // Derive active party IDs from relay's parties map
+    const ids = [...relayClient.parties.keys()].sort((a, b) => a - b);
+    if (ids.length < share.threshold) return; // not enough parties yet
+
+    // Take exactly T parties (the relay should have exactly T connected)
+    const activeIds = ids.slice(0, share.threshold);
+
+    relayInitRef.current = true;
+    startSigningWithIds(activeIds);
+  }, [relayClient, phase, share.threshold, startSigningWithIds]);
+
+  // ---------------------------------------------------------------------------
+  // Relay: subscribe to incoming messages and feed into addBlob
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!relayClient) return;
+    const handler = (_from: number, payload: Uint8Array) => {
+      const blobString = new TextDecoder().decode(payload);
+      if (!sessionRef.current) return;
+      const result = addBlob(sessionRef.current, blobString);
+      if (result.ok) {
+        setSession({ ...sessionRef.current });
+      }
+      // Silently ignore invalid/duplicate blobs in relay mode
+    };
+    relayClient.on('message', handler);
+    return () => { relayClient.off('message', handler); };
+  }, [relayClient]);
+
+  // ---------------------------------------------------------------------------
+  // Relay: auto-advance when enough blobs have been collected
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!relayClient || !sessionRef.current || phase === 'idle' || phase === 'complete' || phase === 'failed') return;
+    const s = sessionRef.current;
+    const needed = s.activePartyIds.length; // T total (including self)
+
+    if (phase === 'round1' && s.collectedRound1Hashes.size >= needed) {
+      advanceToRound2();
+    } else if (phase === 'round2' && s.collectedRound2Commitments.size >= needed) {
+      advanceToRound3();
+    } else if (phase === 'round3' && s.collectedRound3Responses.size >= needed) {
+      doCombine();
+    }
+  }, [session, phase, relayClient, advanceToRound2, advanceToRound3, doCombine]);
+
   const needed = share.threshold;
 
   // Build default party IDs string — show only the first T parties as example
@@ -435,6 +519,29 @@ export function ThresholdSign({
   const parsedIds = parsePartyIds();
   const canStartSigning = !!parsedIds && parsedIds.length === share.threshold;
 
+  // ---------------------------------------------------------------------------
+  // Relay progress UI helper
+  // ---------------------------------------------------------------------------
+  const renderRelayProgress = (
+    roundNumber: number,
+    collected: Map<number, unknown>,
+  ) => {
+    const collectedCount = collected.size;
+    return (
+      <div className="threshold-blob-exchange">
+        <div className="threshold-section-title">Round {roundNumber}</div>
+        <PartyTracker activePartyIds={activePartyIds} collected={collected} selfId={share.partyId} />
+        <div className="threshold-hint" style={{ textAlign: 'center', padding: '8px 0' }}>
+          {collectedCount}/{needed} blobs received via relay
+          {collectedCount < needed ? ' — waiting for peers...' : ' — advancing...'}
+        </div>
+        {blobError && (
+          <div className="step-status error">{blobError}</div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="threshold-sign">
       <TxDetail
@@ -443,7 +550,7 @@ export function ThresholdSign({
         params={txParams}
       />
 
-      {phase === 'idle' && (
+      {phase === 'idle' && !relayClient && (
         <div className="threshold-idle">
           <p className="threshold-hint">
             This step requires {share.threshold}-of-{share.parties} threshold
@@ -477,49 +584,69 @@ export function ThresholdSign({
         </div>
       )}
 
+      {phase === 'idle' && relayClient && (
+        <div className="threshold-idle">
+          <div className="threshold-hint" style={{ textAlign: 'center', padding: '8px 0' }}>
+            Waiting for relay to be ready...
+          </div>
+        </div>
+      )}
+
       {phase === 'round1' && session?.myRound1Blob && (
-        <BlobExchange
-          roundNumber={1}
-          myBlob={session.myRound1Blob}
-          threshold={needed}
-          collected={session.collectedRound1Hashes}
-          activePartyIds={activePartyIds}
-          selfId={share.partyId}
-          onAddBlob={handleAddBlob}
-          onProceed={advanceToRound2}
-          canProceed={session.collectedRound1Hashes.size >= needed}
-          error={blobError}
-        />
+        relayClient ? (
+          renderRelayProgress(1, session.collectedRound1Hashes)
+        ) : (
+          <BlobExchange
+            roundNumber={1}
+            myBlob={session.myRound1Blob}
+            threshold={needed}
+            collected={session.collectedRound1Hashes}
+            activePartyIds={activePartyIds}
+            selfId={share.partyId}
+            onAddBlob={handleAddBlob}
+            onProceed={advanceToRound2}
+            canProceed={session.collectedRound1Hashes.size >= needed}
+            error={blobError}
+          />
+        )
       )}
 
       {phase === 'round2' && session?.myRound2Blob && (
-        <BlobExchange
-          roundNumber={2}
-          myBlob={session.myRound2Blob}
-          threshold={needed}
-          collected={session.collectedRound2Commitments}
-          activePartyIds={activePartyIds}
-          selfId={share.partyId}
-          onAddBlob={handleAddBlob}
-          onProceed={advanceToRound3}
-          canProceed={session.collectedRound2Commitments.size >= needed}
-          error={blobError}
-        />
+        relayClient ? (
+          renderRelayProgress(2, session.collectedRound2Commitments)
+        ) : (
+          <BlobExchange
+            roundNumber={2}
+            myBlob={session.myRound2Blob}
+            threshold={needed}
+            collected={session.collectedRound2Commitments}
+            activePartyIds={activePartyIds}
+            selfId={share.partyId}
+            onAddBlob={handleAddBlob}
+            onProceed={advanceToRound3}
+            canProceed={session.collectedRound2Commitments.size >= needed}
+            error={blobError}
+          />
+        )
       )}
 
       {phase === 'round3' && session?.myRound3Blob && (
-        <BlobExchange
-          roundNumber={3}
-          myBlob={session.myRound3Blob}
-          threshold={needed}
-          collected={session.collectedRound3Responses}
-          activePartyIds={activePartyIds}
-          selfId={share.partyId}
-          onAddBlob={handleAddBlob}
-          onProceed={doCombine}
-          canProceed={session.collectedRound3Responses.size >= needed}
-          error={blobError}
-        />
+        relayClient ? (
+          renderRelayProgress(3, session.collectedRound3Responses)
+        ) : (
+          <BlobExchange
+            roundNumber={3}
+            myBlob={session.myRound3Blob}
+            threshold={needed}
+            collected={session.collectedRound3Responses}
+            activePartyIds={activePartyIds}
+            selfId={share.partyId}
+            onAddBlob={handleAddBlob}
+            onProceed={doCombine}
+            canProceed={session.collectedRound3Responses.size >= needed}
+            error={blobError}
+          />
+        )
       )}
 
       {phase === 'complete' && (
