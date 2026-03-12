@@ -316,6 +316,12 @@ export function DKGWizard() {
   const [phase3Sent, setPhase3Sent] = useState(false);
   const [phase4Sent, setPhase4Sent] = useState(false);
 
+  // Barrier synchronisation: parties don't advance until ALL parties confirm
+  // they have sent their blob AND collected all expected blobs for the phase.
+  // This prevents the race where Party A advances before Party B receives A's blob.
+  const [barriers, setBarriers] = useState<Record<string, Set<number>>>({});
+  const barrierSentRef = useRef<Record<string, boolean>>({});
+
   // Auto-join from URL ?session=XXXXXX
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -503,6 +509,20 @@ export function DKGWizard() {
     if (!relayClient) return;
     const handler = (_from: number, payload: Uint8Array) => {
       const text = new TextDecoder().decode(payload);
+      // Intercept barrier messages: "BARRIER:<phase>:<partyId>"
+      const m = text.match(/^BARRIER:(\w+):(\d+)$/);
+      if (m) {
+        const phase = m[1]!;
+        const pid = parseInt(m[2]!, 10);
+        setBarriers(prev => {
+          const next = { ...prev };
+          const s = new Set(prev[phase]);
+          s.add(pid);
+          next[phase] = s;
+          return next;
+        });
+        return;
+      }
       handleRelayBlob(text);
     };
     relayClient.on('message', handler);
@@ -720,13 +740,26 @@ export function DKGWizard() {
     })();
   }, [isRelayMode, state.myPhase1Blob, phase1Sent, relaySendBlob]);
 
-  // Relay: auto-advance from commit → reveal when all blobs collected AND own sent
+  // Relay: broadcast barrier when own blob sent + all blobs collected
   useEffect(() => {
     if (!isRelayMode || state.step !== 'commit') return;
-    if (phase1Ready && phase1Sent) {
+    if (phase1Ready && phase1Sent && !barrierSentRef.current.commit) {
+      barrierSentRef.current.commit = true;
+      void relaySendBlob(`BARRIER:commit:${state.myPartyId}`);
+      setBarriers(prev => {
+        const s = new Set(prev.commit); s.add(state.myPartyId);
+        return { ...prev, commit: s };
+      });
+    }
+  }, [isRelayMode, state.step, phase1Ready, phase1Sent, state.myPartyId, relaySendBlob]);
+
+  // Relay: auto-advance only when ALL parties have confirmed via barrier
+  useEffect(() => {
+    if (!isRelayMode || state.step !== 'commit') return;
+    if ((barriers.commit?.size ?? 0) >= state.parties) {
       dispatch({ type: 'SET_STEP', step: 'reveal' });
     }
-  }, [isRelayMode, state.step, phase1Ready, phase1Sent]);
+  }, [isRelayMode, state.step, barriers, state.parties]);
 
   // ════════════════════════════════════════════════════════════════════
   // STEP: REVEAL (Phase 2)
@@ -789,13 +822,26 @@ export function DKGWizard() {
   const phase2PrivReady = state.collectedPhase2Priv.length >= getExpectedPhase2PrivCount();
   const phase2Ready = phase2PubReady && phase2PrivReady;
 
-  // Relay: auto-advance from reveal → masks when all blobs collected AND own sent
+  // Relay: broadcast barrier when own blobs sent + all blobs collected
   useEffect(() => {
     if (!isRelayMode || state.step !== 'reveal') return;
-    if (phase2Ready && phase2Sent) {
+    if (phase2Ready && phase2Sent && !barrierSentRef.current.reveal) {
+      barrierSentRef.current.reveal = true;
+      void relaySendBlob(`BARRIER:reveal:${state.myPartyId}`);
+      setBarriers(prev => {
+        const s = new Set(prev.reveal); s.add(state.myPartyId);
+        return { ...prev, reveal: s };
+      });
+    }
+  }, [isRelayMode, state.step, phase2Ready, phase2Sent, state.myPartyId, relaySendBlob]);
+
+  // Relay: auto-advance only when ALL parties have confirmed via barrier
+  useEffect(() => {
+    if (!isRelayMode || state.step !== 'reveal') return;
+    if ((barriers.reveal?.size ?? 0) >= state.parties) {
       dispatch({ type: 'SET_STEP', step: 'masks' });
     }
-  }, [isRelayMode, state.step, phase2Ready, phase2Sent]);
+  }, [isRelayMode, state.step, barriers, state.parties]);
 
   // ════════════════════════════════════════════════════════════════════
   // STEP: MASKS (Phase 2 Finalize + Phase 3)
@@ -855,13 +901,26 @@ export function DKGWizard() {
   const phase3Ready = state.phase2FinalResult !== null &&
     state.collectedPhase3Priv.length >= getExpectedPhase3PrivCount();
 
-  // Relay: auto-advance from masks → aggregate when all blobs collected AND own sent
+  // Relay: broadcast barrier when own blobs sent + all blobs collected
   useEffect(() => {
     if (!isRelayMode || state.step !== 'masks') return;
-    if (phase3Ready && phase3Sent) {
+    if (phase3Ready && phase3Sent && !barrierSentRef.current.masks) {
+      barrierSentRef.current.masks = true;
+      void relaySendBlob(`BARRIER:masks:${state.myPartyId}`);
+      setBarriers(prev => {
+        const s = new Set(prev.masks); s.add(state.myPartyId);
+        return { ...prev, masks: s };
+      });
+    }
+  }, [isRelayMode, state.step, phase3Ready, phase3Sent, state.myPartyId, relaySendBlob]);
+
+  // Relay: auto-advance only when ALL parties have confirmed via barrier
+  useEffect(() => {
+    if (!isRelayMode || state.step !== 'masks') return;
+    if ((barriers.masks?.size ?? 0) >= state.parties) {
       dispatch({ type: 'SET_STEP', step: 'aggregate' });
     }
-  }, [isRelayMode, state.step, phase3Ready, phase3Sent]);
+  }, [isRelayMode, state.step, barriers, state.parties]);
 
   // ════════════════════════════════════════════════════════════════════
   // STEP: AGGREGATE (Phase 4)
@@ -903,13 +962,26 @@ export function DKGWizard() {
 
   const phase4Ready = state.collectedPhase4.length === state.parties;
 
-  // Relay: auto-advance from aggregate → complete when all blobs collected AND own sent
+  // Relay: broadcast barrier when own blob sent + all blobs collected
   useEffect(() => {
     if (!isRelayMode || state.step !== 'aggregate') return;
-    if (phase4Ready && phase4Sent) {
+    if (phase4Ready && phase4Sent && !barrierSentRef.current.aggregate) {
+      barrierSentRef.current.aggregate = true;
+      void relaySendBlob(`BARRIER:aggregate:${state.myPartyId}`);
+      setBarriers(prev => {
+        const s = new Set(prev.aggregate); s.add(state.myPartyId);
+        return { ...prev, aggregate: s };
+      });
+    }
+  }, [isRelayMode, state.step, phase4Ready, phase4Sent, state.myPartyId, relaySendBlob]);
+
+  // Relay: auto-advance only when ALL parties have confirmed via barrier
+  useEffect(() => {
+    if (!isRelayMode || state.step !== 'aggregate') return;
+    if ((barriers.aggregate?.size ?? 0) >= state.parties) {
       dispatch({ type: 'SET_STEP', step: 'complete' });
     }
-  }, [isRelayMode, state.step, phase4Ready, phase4Sent]);
+  }, [isRelayMode, state.step, barriers, state.parties]);
 
   // ════════════════════════════════════════════════════════════════════
   // STEP: COMPLETE (Finalize)
