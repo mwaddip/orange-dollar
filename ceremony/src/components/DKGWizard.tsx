@@ -48,7 +48,7 @@ import type { ThresholdKeyShare } from '@btc-vision/post-quantum/threshold-ml-ds
 
 // ── Constants ──
 
-const RELAY_URL = 'wss://relay.odol.cash/ws';
+const RELAY_URL = 'wss://app.odol.cash/ws';
 
 // ── Types ──
 
