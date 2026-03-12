@@ -155,14 +155,25 @@ function reducer(state: DKGState, action: Action): DKGState {
       return { ...state, sessionId: action.sessionId, instance: action.instance, bitmasks: action.bitmasks, holdersOf: action.holdersOf };
     case 'SET_STEP':
       return { ...state, step: action.step, error: null };
-    case 'SET_PHASE1':
-      return { ...state, phase1State: action.state, myPhase1Blob: action.blob, collectedPhase1: [action.ownBroadcast] };
+    case 'SET_PHASE1': {
+      // Preserve any blobs that arrived via relay before own generation
+      const prior1 = state.collectedPhase1.filter(b => b.partyId !== action.ownBroadcast.partyId);
+      const next1 = [action.ownBroadcast, ...prior1];
+      console.log(`[dkg] SET_PHASE1: own=${action.ownBroadcast.partyId} prior=[${prior1.map(b => b.partyId)}] → collected=${next1.length}`);
+      return { ...state, phase1State: action.state, myPhase1Blob: action.blob, collectedPhase1: next1 };
+    }
     case 'ADD_PHASE1': {
-      if (state.collectedPhase1.some(b => b.partyId === action.broadcast.partyId)) return state;
+      if (state.collectedPhase1.some(b => b.partyId === action.broadcast.partyId)) {
+        console.log(`[dkg] ADD_PHASE1: dup partyId=${action.broadcast.partyId}`);
+        return state;
+      }
+      console.log(`[dkg] ADD_PHASE1: partyId=${action.broadcast.partyId} → collected=${state.collectedPhase1.length + 1}`);
       return { ...state, collectedPhase1: [...state.collectedPhase1, action.broadcast] };
     }
-    case 'SET_PHASE2':
-      return { ...state, myPhase2PubBlob: action.pubBlob, myPhase2PrivBlobs: action.privBlobs, collectedPhase2Pub: [action.ownPub] };
+    case 'SET_PHASE2': {
+      const prior2 = state.collectedPhase2Pub.filter(b => b.partyId !== action.ownPub.partyId);
+      return { ...state, myPhase2PubBlob: action.pubBlob, myPhase2PrivBlobs: action.privBlobs, collectedPhase2Pub: [action.ownPub, ...prior2] };
+    }
     case 'ADD_PHASE2_PUB': {
       if (state.collectedPhase2Pub.some(b => b.partyId === action.broadcast.partyId)) return state;
       return { ...state, collectedPhase2Pub: [...state.collectedPhase2Pub, action.broadcast] };
@@ -177,8 +188,10 @@ function reducer(state: DKGState, action: Action): DKGState {
       if (state.collectedPhase3Priv.some(b => b.fromGeneratorId === action.priv.fromGeneratorId)) return state;
       return { ...state, collectedPhase3Priv: [...state.collectedPhase3Priv, action.priv] };
     }
-    case 'SET_PHASE4':
-      return { ...state, myPhase4Blob: action.blob, collectedPhase4: [action.ownBroadcast] };
+    case 'SET_PHASE4': {
+      const prior4 = state.collectedPhase4.filter(b => b.partyId !== action.ownBroadcast.partyId);
+      return { ...state, myPhase4Blob: action.blob, collectedPhase4: [action.ownBroadcast, ...prior4] };
+    }
     case 'ADD_PHASE4': {
       if (state.collectedPhase4.some(b => b.partyId === action.broadcast.partyId)) return state;
       return { ...state, collectedPhase4: [...state.collectedPhase4, action.broadcast] };
@@ -453,11 +466,8 @@ export function DKGWizard() {
     if (!text.trim()) return false;
     const info = identifyBlob(text.trim());
     if (!info) return false;
-    // Validate session ID
     if (sidPrefix && info.sid !== sidPrefix) return false;
-    // Reject self-blobs
     if (info.from === state.myPartyId && info.type !== 'session') return false;
-    // Reject blobs addressed to someone else
     if (info.to !== -1 && info.to !== state.myPartyId) return false;
 
     switch (info.type) {
@@ -750,7 +760,9 @@ export function DKGWizard() {
   // Relay: broadcast barrier when own blob sent + all blobs collected
   useEffect(() => {
     if (!isRelayMode || state.step !== 'commit') return;
+    console.log(`[dkg] BARRIER CHECK commit: ready=${phase1Ready} sent=${phase1Sent} collected=${state.collectedPhase1.length}/${state.parties} barrierSent=${!!barrierSentRef.current.commit}`);
     if (phase1Ready && phase1Sent && !barrierSentRef.current.commit) {
+      console.log('[dkg] SENDING BARRIER commit');
       barrierSentRef.current.commit = true;
       void relaySendBlob(`BARRIER:commit:${state.myPartyId}`);
       setBarriers(prev => {
@@ -758,7 +770,7 @@ export function DKGWizard() {
         return { ...prev, commit: s };
       });
     }
-  }, [isRelayMode, state.step, phase1Ready, phase1Sent, state.myPartyId, relaySendBlob]);
+  }, [isRelayMode, state.step, phase1Ready, phase1Sent, state.collectedPhase1.length, state.myPartyId, relaySendBlob]);
 
   // Relay: auto-advance only when ALL parties have confirmed via barrier
   useEffect(() => {
@@ -840,7 +852,7 @@ export function DKGWizard() {
         return { ...prev, reveal: s };
       });
     }
-  }, [isRelayMode, state.step, phase2Ready, phase2Sent, state.myPartyId, relaySendBlob]);
+  }, [isRelayMode, state.step, phase2Ready, phase2Sent, state.collectedPhase2Pub.length, state.collectedPhase2Priv.length, state.myPartyId, relaySendBlob]);
 
   // Relay: auto-advance only when ALL parties have confirmed via barrier
   useEffect(() => {
@@ -919,7 +931,7 @@ export function DKGWizard() {
         return { ...prev, masks: s };
       });
     }
-  }, [isRelayMode, state.step, phase3Ready, phase3Sent, state.myPartyId, relaySendBlob]);
+  }, [isRelayMode, state.step, phase3Ready, phase3Sent, state.collectedPhase3Priv.length, state.myPartyId, relaySendBlob]);
 
   // Relay: auto-advance only when ALL parties have confirmed via barrier
   useEffect(() => {
@@ -980,7 +992,7 @@ export function DKGWizard() {
         return { ...prev, aggregate: s };
       });
     }
-  }, [isRelayMode, state.step, phase4Ready, phase4Sent, state.myPartyId, relaySendBlob]);
+  }, [isRelayMode, state.step, phase4Ready, phase4Sent, state.collectedPhase4.length, state.myPartyId, relaySendBlob]);
 
   // Relay: auto-advance only when ALL parties have confirmed via barrier
   useEffect(() => {
