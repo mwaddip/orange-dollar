@@ -336,12 +336,15 @@ export function ThresholdSign({
     return unique;
   }, [partyInput, share.partyId, share.threshold]);
 
-  // Helper: broadcast a blob string via relay
-  const broadcastBlob = useCallback((blob: string) => {
+  // Helper: broadcast a blob string via relay (returns promise)
+  const broadcastBlob = useCallback(async (blob: string): Promise<void> => {
     if (!relayClient) return;
     const blobBytes = new TextEncoder().encode(blob);
-    void relayClient.broadcast(blobBytes);
+    await relayClient.broadcast(blobBytes);
   }, [relayClient]);
+
+  // Track whether our current round's blob has been sent
+  const [roundBlobSent, setRoundBlobSent] = useState(false);
 
   // Start signing (shared between manual and relay modes)
   const startSigningWithIds = useCallback((ids: number[]) => {
@@ -351,11 +354,15 @@ export function ThresholdSign({
     sessionRef.current = sess;
     setSession({ ...sess });
     setPhase('round1');
+    setRoundBlobSent(false);
 
-    // In relay mode, auto-broadcast round 1 blob
+    // In relay mode, auto-broadcast round 1 blob (await before marking sent)
     if (relayClient && blob) {
-      const blobBytes = new TextEncoder().encode(blob);
-      void relayClient.broadcast(blobBytes);
+      void (async () => {
+        const blobBytes = new TextEncoder().encode(blob);
+        await relayClient.broadcast(blobBytes);
+        setRoundBlobSent(true);
+      })();
     }
   }, [message, share, relayClient]);
 
@@ -389,10 +396,14 @@ export function ThresholdSign({
       setSession({ ...sessionRef.current });
       setPhase('round2');
       setBlobError('');
+      setRoundBlobSent(false);
 
-      // Auto-broadcast round 2 blob in relay mode
+      // Auto-broadcast round 2 blob in relay mode (await before marking sent)
       if (relayClient && sessionRef.current.myRound2Blob) {
-        broadcastBlob(sessionRef.current.myRound2Blob);
+        void (async () => {
+          await broadcastBlob(sessionRef.current!.myRound2Blob!);
+          setRoundBlobSent(true);
+        })();
       }
     } catch (err) {
       setBlobError(err instanceof Error ? err.message : 'Round 2 failed');
@@ -407,10 +418,14 @@ export function ThresholdSign({
       setSession({ ...sessionRef.current });
       setPhase('round3');
       setBlobError('');
+      setRoundBlobSent(false);
 
-      // Auto-broadcast round 3 blob in relay mode
+      // Auto-broadcast round 3 blob in relay mode (await before marking sent)
       if (relayClient && sessionRef.current.myRound3Blob) {
-        broadcastBlob(sessionRef.current.myRound3Blob);
+        void (async () => {
+          await broadcastBlob(sessionRef.current!.myRound3Blob!);
+          setRoundBlobSent(true);
+        })();
       }
     } catch (err) {
       setBlobError(err instanceof Error ? err.message : 'Round 3 failed');
@@ -494,10 +509,11 @@ export function ThresholdSign({
   }, [relayClient]);
 
   // ---------------------------------------------------------------------------
-  // Relay: auto-advance when enough blobs have been collected
+  // Relay: auto-advance when enough blobs collected AND own blob sent
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!relayClient || !sessionRef.current || phase === 'idle' || phase === 'complete' || phase === 'failed') return;
+    if (!roundBlobSent) return; // Don't advance until our own blob has been sent
     const s = sessionRef.current;
     const needed = s.activePartyIds.length; // T total (including self)
 
@@ -508,7 +524,7 @@ export function ThresholdSign({
     } else if (phase === 'round3' && s.collectedRound3Responses.size >= needed) {
       doCombine();
     }
-  }, [session, phase, relayClient, advanceToRound2, advanceToRound3, doCombine]);
+  }, [session, phase, relayClient, roundBlobSent, advanceToRound2, advanceToRound3, doCombine]);
 
   const needed = share.threshold;
 

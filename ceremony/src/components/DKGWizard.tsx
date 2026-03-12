@@ -310,6 +310,22 @@ export function DKGWizard() {
 
   const isRelayMode = transportMode === 'relay-create' || transportMode === 'relay-join';
 
+  // Relay send completion flags (state, not refs, so auto-advance re-evaluates)
+  const [phase1Sent, setPhase1Sent] = useState(false);
+  const [phase2Sent, setPhase2Sent] = useState(false);
+  const [phase3Sent, setPhase3Sent] = useState(false);
+  const [phase4Sent, setPhase4Sent] = useState(false);
+
+  // Auto-join from URL ?session=XXXXXX
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionParam = params.get('session');
+    if (sessionParam && sessionParam.trim().length === 6) {
+      setTransportMode('relay-join');
+      setRelayJoinCode(sessionParam.trim().toUpperCase());
+    }
+  }, []);
+
   const stepIndex = STEPS.indexOf(state.step);
 
   // Cleanup relay on unmount
@@ -693,21 +709,24 @@ export function DKGWizard() {
     }, 100);
   }, [isRelayMode, state.step, state.instance, state.sessionId, handleGenerateCommitment]);
 
-  // Relay: auto-broadcast Phase 1 blob when generated
-  const phase1BlobSent = useRef(false);
+  // Relay: auto-broadcast Phase 1 blob when generated (await completion)
+  const phase1BlobSending = useRef(false);
   useEffect(() => {
-    if (!isRelayMode || !state.myPhase1Blob || phase1BlobSent.current) return;
-    phase1BlobSent.current = true;
-    void relaySendBlob(state.myPhase1Blob);
-  }, [isRelayMode, state.myPhase1Blob, relaySendBlob]);
+    if (!isRelayMode || !state.myPhase1Blob || phase1BlobSending.current || phase1Sent) return;
+    phase1BlobSending.current = true;
+    void (async () => {
+      await relaySendBlob(state.myPhase1Blob!);
+      setPhase1Sent(true);
+    })();
+  }, [isRelayMode, state.myPhase1Blob, phase1Sent, relaySendBlob]);
 
-  // Relay: auto-advance from commit → reveal when all blobs collected
+  // Relay: auto-advance from commit → reveal when all blobs collected AND own sent
   useEffect(() => {
     if (!isRelayMode || state.step !== 'commit') return;
-    if (phase1Ready) {
+    if (phase1Ready && phase1Sent) {
       dispatch({ type: 'SET_STEP', step: 'reveal' });
     }
-  }, [isRelayMode, state.step, phase1Ready]);
+  }, [isRelayMode, state.step, phase1Ready, phase1Sent]);
 
   // ════════════════════════════════════════════════════════════════════
   // STEP: REVEAL (Phase 2)
@@ -739,20 +758,19 @@ export function DKGWizard() {
     }
   }, [state.step, state.instance, state.sessionId, state.phase1State, state.myPartyId, state.collectedPhase1, state.parties]);
 
-  // Relay: auto-send Phase 2 blobs (public broadcast + private to targets)
-  const phase2BlobsSent = useRef(false);
+  // Relay: auto-send Phase 2 blobs (public broadcast + private to targets, await completion)
+  const phase2BlobsSending = useRef(false);
   useEffect(() => {
-    if (!isRelayMode || !state.myPhase2PubBlob || phase2BlobsSent.current) return;
-    phase2BlobsSent.current = true;
+    if (!isRelayMode || !state.myPhase2PubBlob || phase2BlobsSending.current || phase2Sent) return;
+    phase2BlobsSending.current = true;
     void (async () => {
-      // Broadcast public reveal
       await relaySendBlob(state.myPhase2PubBlob!);
-      // Send private reveals to specific parties
       for (const [targetId, blob] of state.myPhase2PrivBlobs) {
         await relaySendBlob(blob, targetId);
       }
+      setPhase2Sent(true);
     })();
-  }, [isRelayMode, state.myPhase2PubBlob, state.myPhase2PrivBlobs, relaySendBlob]);
+  }, [isRelayMode, state.myPhase2PubBlob, state.myPhase2PrivBlobs, phase2Sent, relaySendBlob]);
 
   // Count expected private blobs for Phase 2
   const getExpectedPhase2PrivCount = useCallback((): number => {
@@ -771,13 +789,13 @@ export function DKGWizard() {
   const phase2PrivReady = state.collectedPhase2Priv.length >= getExpectedPhase2PrivCount();
   const phase2Ready = phase2PubReady && phase2PrivReady;
 
-  // Relay: auto-advance from reveal → masks
+  // Relay: auto-advance from reveal → masks when all blobs collected AND own sent
   useEffect(() => {
     if (!isRelayMode || state.step !== 'reveal') return;
-    if (phase2Ready) {
+    if (phase2Ready && phase2Sent) {
       dispatch({ type: 'SET_STEP', step: 'masks' });
     }
-  }, [isRelayMode, state.step, phase2Ready]);
+  }, [isRelayMode, state.step, phase2Ready, phase2Sent]);
 
   // ════════════════════════════════════════════════════════════════════
   // STEP: MASKS (Phase 2 Finalize + Phase 3)
@@ -811,17 +829,18 @@ export function DKGWizard() {
   }, [state.step, state.instance, state.sessionId, state.phase1State, state.myPartyId,
       state.collectedPhase1, state.collectedPhase2Pub, state.collectedPhase2Priv]);
 
-  // Relay: auto-send Phase 3 private blobs
-  const phase3BlobsSent = useRef(false);
+  // Relay: auto-send Phase 3 private blobs (await completion)
+  const phase3BlobsSending = useRef(false);
   useEffect(() => {
-    if (!isRelayMode || !state.phase2FinalResult || state.myPhase3PrivBlobs.size === 0 || phase3BlobsSent.current) return;
-    phase3BlobsSent.current = true;
+    if (!isRelayMode || !state.phase2FinalResult || state.myPhase3PrivBlobs.size === 0 || phase3BlobsSending.current || phase3Sent) return;
+    phase3BlobsSending.current = true;
     void (async () => {
       for (const [targetId, blob] of state.myPhase3PrivBlobs) {
         await relaySendBlob(blob, targetId);
       }
+      setPhase3Sent(true);
     })();
-  }, [isRelayMode, state.phase2FinalResult, state.myPhase3PrivBlobs, relaySendBlob]);
+  }, [isRelayMode, state.phase2FinalResult, state.myPhase3PrivBlobs, phase3Sent, relaySendBlob]);
 
   // Count expected Phase 3 private mask blobs
   const getExpectedPhase3PrivCount = useCallback((): number => {
@@ -836,13 +855,13 @@ export function DKGWizard() {
   const phase3Ready = state.phase2FinalResult !== null &&
     state.collectedPhase3Priv.length >= getExpectedPhase3PrivCount();
 
-  // Relay: auto-advance from masks → aggregate
+  // Relay: auto-advance from masks → aggregate when all blobs collected AND own sent
   useEffect(() => {
     if (!isRelayMode || state.step !== 'masks') return;
-    if (phase3Ready) {
+    if (phase3Ready && phase3Sent) {
       dispatch({ type: 'SET_STEP', step: 'aggregate' });
     }
-  }, [isRelayMode, state.step, phase3Ready]);
+  }, [isRelayMode, state.step, phase3Ready, phase3Sent]);
 
   // ════════════════════════════════════════════════════════════════════
   // STEP: AGGREGATE (Phase 4)
@@ -871,23 +890,26 @@ export function DKGWizard() {
   }, [state.step, state.instance, state.sessionId, state.myPartyId,
       state.bitmasks, state.phase2FinalResult, state.collectedPhase3Priv]);
 
-  // Relay: auto-broadcast Phase 4 blob
-  const phase4BlobSent = useRef(false);
+  // Relay: auto-broadcast Phase 4 blob (await completion)
+  const phase4BlobSending = useRef(false);
   useEffect(() => {
-    if (!isRelayMode || !state.myPhase4Blob || phase4BlobSent.current) return;
-    phase4BlobSent.current = true;
-    void relaySendBlob(state.myPhase4Blob);
-  }, [isRelayMode, state.myPhase4Blob, relaySendBlob]);
+    if (!isRelayMode || !state.myPhase4Blob || phase4BlobSending.current || phase4Sent) return;
+    phase4BlobSending.current = true;
+    void (async () => {
+      await relaySendBlob(state.myPhase4Blob!);
+      setPhase4Sent(true);
+    })();
+  }, [isRelayMode, state.myPhase4Blob, phase4Sent, relaySendBlob]);
 
   const phase4Ready = state.collectedPhase4.length === state.parties;
 
-  // Relay: auto-advance from aggregate → complete
+  // Relay: auto-advance from aggregate → complete when all blobs collected AND own sent
   useEffect(() => {
     if (!isRelayMode || state.step !== 'aggregate') return;
-    if (phase4Ready) {
+    if (phase4Ready && phase4Sent) {
       dispatch({ type: 'SET_STEP', step: 'complete' });
     }
-  }, [isRelayMode, state.step, phase4Ready]);
+  }, [isRelayMode, state.step, phase4Ready, phase4Sent]);
 
   // ════════════════════════════════════════════════════════════════════
   // STEP: COMPLETE (Finalize)
