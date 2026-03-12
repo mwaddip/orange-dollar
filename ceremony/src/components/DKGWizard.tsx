@@ -1043,15 +1043,6 @@ export function DKGWizard() {
                     ))}
                   </select>
                 </label>
-                <label>
-                  Security Level
-                  <select
-                    value={state.level}
-                    onChange={e => dispatch({ type: 'SET_PARAMS', threshold: state.threshold, parties: state.parties, level: Number(e.target.value) })}
-                  >
-                    {[44, 65, 87].map(n => <option key={n} value={n}>{n}</option>)}
-                  </select>
-                </label>
               </div>
 
               <button
