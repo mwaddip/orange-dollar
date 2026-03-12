@@ -149,6 +149,8 @@ export class RelayClient {
   private closed = false;
 
   private listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+  /** Resolves when handleReady finishes; relay messages wait on this. */
+  private readyGate: Promise<void> | null = null;
 
   constructor(relayUrl: string) {
     this.relayUrl = relayUrl;
@@ -368,11 +370,19 @@ export class RelayClient {
         break;
 
       case 'ready':
-        void this.handleReady(msg);
+        // Store the promise so relay messages can wait for AES keys
+        this.readyGate = this.handleReady(msg);
         break;
 
       case 'relay':
-        void this.handleRelay(msg);
+        // If handleReady is still deriving AES keys, wait for it before
+        // attempting decryption. Without this gate, relay messages that
+        // arrive during key derivation would be silently dropped.
+        if (this.readyGate) {
+          void this.readyGate.then(() => this.handleRelay(msg));
+        } else {
+          void this.handleRelay(msg);
+        }
         break;
 
       case 'left':

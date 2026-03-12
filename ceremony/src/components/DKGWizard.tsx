@@ -505,6 +505,13 @@ export function DKGWizard() {
   // RELAY: subscribe to incoming messages
   // ════════════════════════════════════════════════════════════════════
 
+  // Use a ref so the relay handler always calls the LATEST handleRelayBlob
+  // without needing to re-subscribe on every state change. Re-subscribing
+  // on every collected-array change creates a window where async-decrypted
+  // relay messages can be emitted between off() and on(), losing data.
+  const handleRelayBlobRef = useRef(handleRelayBlob);
+  handleRelayBlobRef.current = handleRelayBlob;
+
   useEffect(() => {
     if (!relayClient) return;
     const handler = (_from: number, payload: Uint8Array) => {
@@ -523,11 +530,11 @@ export function DKGWizard() {
         });
         return;
       }
-      handleRelayBlob(text);
+      handleRelayBlobRef.current(text);
     };
     relayClient.on('message', handler);
     return () => { relayClient.off('message', handler); };
-  }, [relayClient, handleRelayBlob]);
+  }, [relayClient]); // stable — only re-subscribe when the client itself changes
 
   // ── Relay send helpers ──
   const relaySendBlob = useCallback(async (blob: string, to?: number) => {
