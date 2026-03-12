@@ -227,6 +227,36 @@ After 6 blocks (~1 hour on Bitcoin mainnet, instant on regtest), the next user i
 
 ---
 
+## Governance: PERMAFROST
+
+After bootstrap, contract ownership is transferred to a **PERMAFROST** threshold key — a 3-of-5 multisig using **ML-DSA-44** (post-quantum, NIST Level 2). No single individual can execute admin functions; 3 of 5 signers must participate in a multi-round signing ceremony.
+
+### Key Generation
+
+The PERMAFROST public key is created via a Distributed Key Generation (DKG) ceremony at [signing.odol.cash](https://signing.odol.cash). Each signer receives an encrypted key share; the combined public key is published on-chain.
+
+### Threshold Signing
+
+When an admin action is needed, 3 signers coordinate via the cabal page at [cabal.odol.cash](https://cabal.odol.cash):
+
+1. Select the governance action and parameters
+2. Load and decrypt key shares
+3. Complete 3 signing rounds (commitments, responses, partial signatures)
+4. The combined signature is broadcast to the network
+
+### Encrypted WebSocket Relay
+
+Signing rounds can be completed either by **copying/pasting blobs manually** (offline mode) or via an **encrypted WebSocket relay** that automates the exchange in real time. The relay is trust-minimised:
+
+- All payloads are encrypted end-to-end (ECDH P-256 + AES-256-GCM)
+- The relay sees only ciphertext and routing metadata
+- A session fingerprint (SHA-256 of all ECDH public keys) lets signers detect MITM attacks
+- Signers can always fall back to offline mode if they distrust the relay
+
+The relay server (`relay/`) is a stateless Go binary with no database and no disk I/O. Source: [`relay/`](relay/).
+
+---
+
 ## Architecture
 
 ```
@@ -319,16 +349,14 @@ tests/
 scripts/
   deploy.ts             # Contract deployment
   bootstrap.ts          # Post-deploy bootstrap sequence
-app/
-  src/
-    components/         # React UI components (Trade, Dashboard, Admin, etc.)
-    context/            # ProtocolContext, ToastContext
-    hooks/              # useContractCall
-    abi/                # Contract ABIs for frontend
-    config.ts           # Network configs (testnet, mainnet)
-    styles/             # CSS (dark theme matching landing page)
-docs/
-  plans/                # Design document and implementation plan
+app/                    # User-facing dApp (app.odol.cash)
+cabal/                  # PERMAFROST signing & admin UI (cabal.odol.cash)
+ceremony/               # DKG key generation ceremony (signing.odol.cash)
+relay/                  # Encrypted WebSocket relay server (Go)
+server/                 # CABAL submission backend (Node.js)
+shared/
+  config.json           # Contract addresses & RPC URLs (single source of truth)
+docs/                   # VitePress documentation site
 site/
   index.html            # Landing page
 ```

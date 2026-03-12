@@ -22,6 +22,10 @@ If BTC drops sharply, the reserve ratio decreases. Below 400%, OD minting is blo
 
 The PERMAFROST multisig requires 3 of 5 signers to act. If 3 or more signers lose their key shares or become permanently unavailable, administrative functions (like key rotation) would be permanently locked.
 
+## Relay Server
+
+The [encrypted relay](/security/relay) routes E2E encrypted messages between signers during ceremonies. A compromised relay cannot read payloads or forge signatures, but could theoretically substitute ECDH public keys in a man-in-the-middle attack. This is mitigated by the session fingerprint — signers should compare fingerprints out-of-band before proceeding. Signers can also bypass the relay entirely using offline mode.
+
 ## OPNet Platform Risk
 
 Orange Dollar runs on OPNet, which is itself a relatively new platform. Bugs or changes in the OPNet runtime could affect contract behaviour.

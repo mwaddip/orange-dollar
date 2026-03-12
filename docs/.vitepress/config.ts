@@ -57,6 +57,7 @@ export default defineConfig({
         items: [
           { text: 'Djed Formalism', link: '/security/djed' },
           { text: 'PERMAFROST Multisig', link: '/security/permafrost' },
+          { text: 'Encrypted Relay', link: '/security/relay' },
           { text: 'Risk Factors', link: '/security/risks' },
         ],
       },
