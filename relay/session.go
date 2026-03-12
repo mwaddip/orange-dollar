@@ -73,17 +73,19 @@ func NewSession(code string, parties, threshold int, baseURL string) *Session {
 }
 
 // AddParty adds a new party and returns the assigned party ID.
-// Returns -1 if the session is full.
-func (s *Session) AddParty(pubkey string, conn *websocket.Conn) (int, string) {
+// Returns -1 if the session is full. The nowFull return value indicates
+// whether this addition made the session full and transitioned State to "ready".
+// This is atomic — no race between checking fullness and transitioning state.
+func (s *Session) AddParty(pubkey string, conn *websocket.Conn) (id int, token string, nowFull bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if len(s.PartyList) >= s.Parties {
-		return -1, ""
+		return -1, "", false
 	}
 
-	token := generateToken()
-	id := len(s.PartyList)
+	token = generateToken()
+	id = len(s.PartyList)
 	p := &Party{
 		ID:        id,
 		Pubkey:    pubkey,
@@ -94,7 +96,12 @@ func (s *Session) AddParty(pubkey string, conn *websocket.Conn) (int, string) {
 	s.PartyList = append(s.PartyList, p)
 	s.LastActivity = time.Now()
 
-	return id, token
+	if len(s.PartyList) >= s.Parties && s.State == "waiting" {
+		s.State = "ready"
+		nowFull = true
+	}
+
+	return id, token, nowFull
 }
 
 // PartyCount returns the number of parties that have joined.

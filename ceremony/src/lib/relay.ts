@@ -144,6 +144,8 @@ export class RelayClient {
   private peerKeys = new Map<number, CryptoKey>(); // AES keys per peer
   private token: string | null = null;
   private reconnecting = false;
+  private reconnectAttempts = 0;
+  private readonly maxReconnectAttempts = 10;
   private closed = false;
 
   private listeners = new Map<string, Set<(...args: unknown[]) => void>>();
@@ -222,7 +224,7 @@ export class RelayClient {
       };
 
       ws.addEventListener('open', () => {
-        this.send_wire({
+        this.sendWire({
           type: 'create',
           parties,
           threshold,
@@ -285,7 +287,7 @@ export class RelayClient {
       };
 
       ws.addEventListener('open', () => {
-        this.send_wire({
+        this.sendWire({
           type: 'join',
           session,
           pubkey: toBase64(pubBytes),
@@ -313,7 +315,7 @@ export class RelayClient {
     const aesKey = this.peerKeys.get(to);
     if (!aesKey) throw new Error(`No AES key for party ${to}`);
     const ciphertext = await encrypt(aesKey, payload);
-    this.send_wire({
+    this.sendWire({
       type: 'relay',
       to,
       payload: toBase64(ciphertext),
@@ -436,7 +438,7 @@ export class RelayClient {
   }
 
   /** Send a raw wire-protocol JSON message over the WebSocket. */
-  private send_wire(msg: Record<string, unknown>): void {
+  private sendWire(msg: Record<string, unknown>): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.emit('error', 'WebSocket is not open');
       return;
@@ -464,7 +466,17 @@ export class RelayClient {
       return;
     }
 
-    const delay = 1000 + Math.random() * 1000; // 1-2s jitter
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      this.emit('error', 'Max reconnection attempts reached — ceremony must restart');
+      this.reconnecting = false;
+      return;
+    }
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, ... capped at 30s, plus jitter
+    const base = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+    const delay = base + Math.random() * 1000;
+    this.reconnectAttempts++;
+
     setTimeout(() => {
       if (this.closed) {
         this.reconnecting = false;
@@ -475,12 +487,13 @@ export class RelayClient {
       this.ws = ws;
 
       ws.addEventListener('open', () => {
-        this.send_wire({
+        this.sendWire({
           type: 'reconnect',
           session: this.sessionCode,
           token,
         });
         this.reconnecting = false;
+        this.reconnectAttempts = 0; // Reset on successful connection
       });
 
       ws.addEventListener('message', (ev: MessageEvent) => {
@@ -501,7 +514,6 @@ export class RelayClient {
 
       ws.addEventListener('error', () => {
         // The close event will fire next and trigger another reconnect
-        this.reconnecting = false;
       });
     }, delay);
   }

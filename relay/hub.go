@@ -87,7 +87,7 @@ func (h *Hub) handleCreate(conn *websocket.Conn, msg Msg) (*Session, int) {
 	h.sessions[code] = sess
 	h.mu.Unlock()
 
-	partyID, token := sess.AddParty(msg.Pubkey, conn)
+	partyID, token, _ := sess.AddParty(msg.Pubkey, conn)
 
 	url := ""
 	if h.baseURL != "" {
@@ -141,7 +141,7 @@ func (h *Hub) handleJoin(conn *websocket.Conn, msg Msg) (*Session, int) {
 		return nil, -1
 	}
 
-	partyID, token := sess.AddParty(msg.Pubkey, conn)
+	partyID, token, nowFull := sess.AddParty(msg.Pubkey, conn)
 	if partyID == -1 {
 		h.sendError(conn, "session is full")
 		return nil, -1
@@ -166,12 +166,9 @@ func (h *Hub) handleJoin(conn *websocket.Conn, msg Msg) (*Session, int) {
 		Total:   intPtr(sess.Parties),
 	}, partyID)
 
-	// If session is now full, transition to ready
-	if sess.IsFull() {
-		sess.mu.Lock()
-		sess.State = "ready"
-		sess.mu.Unlock()
-
+	// If this addition made the session full, broadcast ready
+	// (state transition was already done atomically inside AddParty)
+	if nowFull {
 		h.broadcast(sess, Msg{
 			Type:      "ready",
 			Pubkeys:   sess.Pubkeys(),
